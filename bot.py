@@ -45,6 +45,8 @@ PARAMS = {
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
     "chase_hp": float(os.environ.get("KFE_CHASE_HP", 0.4)),
     "group": int(os.environ.get("KFE_GROUP", 1)),
+    "group_r": float(os.environ.get("KFE_GROUP_R", 120)),
+    "rear_switch": float(os.environ.get("KFE_REAR_SWITCH", 0)),
     "farm_enemy_d": float(os.environ.get("KFE_FARM_ENEMY_D", 1e9)),
     "sticky": float(os.environ.get("KFE_STICKY", 0)),
     "pos": int(os.environ.get("KFE_POS", 0)),
@@ -118,6 +120,7 @@ class Bot:
         self.climb_since = None
         self.fight_spot = None
         self.cur_target = None
+        self.rear_by = None
         self.cur_target_t = -99
         self.fight_spot_t = -99
         self.loot_spots = []  # (t, (x, y))
@@ -348,6 +351,8 @@ class Bot:
                     self.threats[e["by"]] = (t, e.get("bearing"))
                     if e.get("bearing") is not None and e.get("weapon") != "npc":
                         self.last_dmg = (t, e["bearing"], e["by"])
+                    if e.get("rear"):
+                        self.rear_by = (t, e["by"])
                 elif e.get("weapon") != "zone":
                     self.last_hurt = t
             elif et == "hit":
@@ -419,6 +424,9 @@ class Bot:
                 s += m["hp"] * PARAMS["tgt_hp"]
                 if m["_threat"]:
                     s -= 80 if m["_los"] else 40
+                if PARAMS["rear_switch"] and self.rear_by and t - self.rear_by[0] < 1.5 \
+                        and self.rear_by[1] == m["id"] and m["_los"]:
+                    s -= PARAMS["rear_switch"]
                 return s
             target = min(cand, key=score)
             if PARAMS["sticky"] and self.cur_target is not None and t - self.cur_target_t < 3.0:
@@ -582,7 +590,7 @@ class Bot:
             px, py = -uy * self.strafe, ux * self.strafe
             mx, my = ux * radial + px * 0.9, uy * radial + py * 0.9
             if PARAMS["group"]:
-                grp = [m for m in enemies if m["_d"] < 120 and (m["_los"] or m["_threat"])]
+                grp = [m for m in enemies if m["_d"] < PARAMS["group_r"] and (m["_los"] or m["_threat"])]
                 if len(grp) >= 2:
                     cx_ = sum(m["pos"][0] for m in grp) / len(grp) - x
                     cy_ = sum(m["pos"][1] for m in grp) / len(grp) - y
