@@ -49,7 +49,7 @@ PARAMS = {
     "group_r": float(os.environ.get("KFE_GROUP_R", 200)),
     "group_ffa": int(os.environ.get("KFE_GROUP_FFA", 0)),
     "rear_switch": float(os.environ.get("KFE_REAR_SWITCH", 0)),
-    "farm_enemy_d": float(os.environ.get("KFE_FARM_ENEMY_D", 1e9)),
+    "farm_enemy_d": float(os.environ.get("KFE_FARM_ENEMY_D", 120)),
     "sticky": float(os.environ.get("KFE_STICKY", 0)),
     "pos": int(os.environ.get("KFE_POS", 0)),
     "tgt_hp": float(os.environ.get("KFE_TGT_HP", 0.04)),
@@ -57,15 +57,16 @@ PARAMS = {
     "perch": int(os.environ.get("KFE_PERCH", 0)),
     "perch_t": float(os.environ.get("KFE_PERCH_T", 0)),
     "perch_margin": float(os.environ.get("KFE_PERCH_MARGIN", 12)),
-    "farm_r_early": float(os.environ.get("KFE_FARM_R", 70)),
+    "farm_r_early": float(os.environ.get("KFE_FARM_R", 140)),
     "farm_t": float(os.environ.get("KFE_FARM_T", 120)),
     "kite": int(os.environ.get("KFE_KITE", 1)),
     "repel": float(os.environ.get("KFE_REPEL", 1.5)),
     "npc_avoid": int(os.environ.get("KFE_NPC_AVOID", 1)),
     "evade": int(os.environ.get("KFE_EVADE", 0)),
     "evade_mem": float(os.environ.get("KFE_EVADE_MEM", 3.0)),
+    "evade_ffa": int(os.environ.get("KFE_EVADE_FFA", 1)),
     "loot_kill": int(os.environ.get("KFE_LOOT_KILL", 1)),
-    "farm_hp": float(os.environ.get("KFE_FARM_HP", 0.85)),
+    "farm_hp": float(os.environ.get("KFE_FARM_HP", 0.6)),
     "fight_boost": float(os.environ.get("KFE_FIGHT_BOOST", 0)),
     "strafe_lo": float(os.environ.get("KFE_STRAFE_LO", 0.5)),
     "strafe_hi": float(os.environ.get("KFE_STRAFE_HI", 1.4)),
@@ -449,7 +450,7 @@ class Bot:
 
         engaged = target is not None and (target["_d"] <= PARAMS["engage"] or target["_threat"] or recent_hurt
                                           or target["hp"] <= target["max_hp"] * 0.35)
-        if PARAMS["evade"] and target is not None:
+        if (PARAMS["evade"] or (self.ffa and PARAMS["evade_ffa"])) and target is not None:
             engaged = (target["_d"] < 35 or (t - self.last_hurt < PARAMS["evade_mem"])
                        or (target["hp"] <= target["max_hp"] * 0.3 and target["_d"] < 90))
 
@@ -565,7 +566,7 @@ class Bot:
             if self.cover:
                 goal = self.cover
                 mode = "hide"
-        if goal is None and PARAMS["evade"] and not engaged and not self.retreating:
+        if goal is None and (PARAMS["evade"] or (self.ffa and PARAMS["evade_ffa"])) and not engaged and not self.retreating:
             seen = [m for m in enemies if m["_d"] < 170 and m["_los"]]
             if seen:
                 if self.cover is None or t - self.cover_t > 1.0:
