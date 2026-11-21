@@ -191,7 +191,7 @@ class Bot:
             return (goal[0] - x) / dist, (goal[1] - y) / dist, dist
         if (self.path is None or self.path_goal is None or d2(goal, self.path_goal) > 6
                 or t - self.path_t > 2.5):
-            self.path = W.astar((x, y), goal)
+            self.path = W.astar((x, y), goal, max_expand=3500)
             self.path_goal = tuple(goal)
             self.path_t = t
         p = self.path
@@ -240,6 +240,8 @@ class Bot:
 
     def find_cover(self, threats, obs, radii=(14, 24, 36, 50)):
         x, y, z = self.pos
+        if len(threats) > 4:
+            threats = sorted(threats, key=lambda m: d2(m["pos"], (x, y)))[:4]
         W = self.W
         best = None
         for r in radii:
