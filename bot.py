@@ -41,7 +41,7 @@ PARAMS = {
     "farm_t": float(os.environ.get("KFE_FARM_T", 120)),
     "kite": int(os.environ.get("KFE_KITE", 1)),
     "repel": float(os.environ.get("KFE_REPEL", 1.5)),
-    "evade": int(os.environ.get("KFE_EVADE", 0)),
+    "evade": int(os.environ.get("KFE_EVADE", 1)),
     "evade_mem": float(os.environ.get("KFE_EVADE_MEM", 3.0)),
     "loot_kill": int(os.environ.get("KFE_LOOT_KILL", 1)),
     "farm_hp": float(os.environ.get("KFE_FARM_HP", 0.85)),
