@@ -107,7 +107,7 @@ PARAMS = {
     "s_bd_margin": float(os.environ.get("S_BD_MARGIN", 0.8)),
     "s_bd_t": float(os.environ.get("S_BD_T", 0.8)),
     "s_bd_boost": float(os.environ.get("S_BD_BOOST", 25)),
-    "s_sel": int(os.environ.get("S_SEL", 0)),              # selective engagement rule of the public top bots
+    "s_sel": int(os.environ.get("S_SEL", 1)),              # selective engagement rule of the public top bots
     "s_ffa_n": int(os.environ.get("S_FFA_N", 2)),          # unexplained deaths (before 150 s) that mean free-for-all
     "s_ffa_hp": int(os.environ.get("S_FFA_HP", 2)),        # >0: also this many other mechs seen taking hits nobody aimed at us explains
     "s_open": float(os.environ.get("S_OPEN", 0)),          # >0: until this time or a second weapon, only fight in self-defense
