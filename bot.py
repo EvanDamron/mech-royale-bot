@@ -24,6 +24,8 @@ UPGRADE_PRIO = [
     "mortar_reload", "mortar_splash", "mortar_velocity",
 ]
 WEAPON_PREF = {"laser": 3, "lightning": 2, "mortar": -1, "gun": -2}
+if os.environ.get("KFE_PREF") == "lightning":
+    WEAPON_PREF = {"laser": 2, "lightning": 3, "mortar": -1, "gun": -2}
 
 PARAMS = {
     "retreat_hp": float(os.environ.get("KFE_RETREAT_HP", 0.35)),
@@ -35,6 +37,10 @@ PARAMS = {
     "chase": int(os.environ.get("KFE_CHASE", 1)),
     "engage": float(os.environ.get("KFE_ENGAGE", 120)),
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
+    "farm_r_early": float(os.environ.get("KFE_FARM_R", 70)),
+    "farm_t": float(os.environ.get("KFE_FARM_T", 120)),
+    "kite": int(os.environ.get("KFE_KITE", 1)),
+    "repel": float(os.environ.get("KFE_REPEL", 1.5)),
     "evade": int(os.environ.get("KFE_EVADE", 0)),
     "evade_mem": float(os.environ.get("KFE_EVADE_MEM", 3.0)),
     "loot_kill": int(os.environ.get("KFE_LOOT_KILL", 1)),
@@ -418,11 +424,15 @@ class Bot:
                 radial = 1.0
             elif td < lo:
                 radial = -1.0
+            if PARAMS["kite"] and not light and "lightning" in (target.get("weapons") or []) and td < 58:
+                radial = -1.0
+                boost = me["energy"] > 25
             if t > self.strafe_until:
                 self.strafe = -self.strafe if self.rng.random() < 0.7 else self.strafe
                 self.strafe_until = t + self.rng.uniform(PARAMS["strafe_lo"], PARAMS["strafe_hi"])
             px, py = -uy * self.strafe, ux * self.strafe
             mx, my = ux * radial + px * 0.9, uy * radial + py * 0.9
+            kite_boost = boost
             # do not strafe out of the zone
             gx, gy = x + mx * 10, y + my * 10
             if not self.safe_spot((gx, gy), obs, 3):
@@ -431,7 +441,7 @@ class Bot:
                 mx, my = mx * 0.3 + cx / cn, my * 0.3 + cy / cn
             goal = (x + mx * 12, y + my * 12)
             strafe_ok = True
-            boost = me["energy"] > 55 and any(m.get("charging") and m["_aimed"] for m in enemies)
+            boost = kite_boost or (me["energy"] > 55 and any(m.get("charging") and m["_aimed"] for m in enemies))
             if PARAMS["fight_boost"] and me["energy"] > PARAMS["fight_boost"]:
                 boost = True
         if goal is None and PARAMS["chase"] and target is not None and not target["_los"] and not self.retreating \
@@ -459,17 +469,18 @@ class Bot:
                 dd = d2(lp, (x, y))
                 if dd < 120 and self.safe_spot(lp, obs) and not any(m["_los"] and m["_d"] < 100 for m in enemies):
                     cands.append((dd * 0.4, "loot", lp, None))
+            farm_r = PARAMS["farm_r_early"] if t < PARAMS["farm_t"] else 70
             if not enemies and hp_frac > PARAMS["farm_hp"]:
                 for c in obs["crates"]:
                     cz = c["pos"][2]
                     if cz - W.terrain(c["pos"][0], c["pos"][1]) > 3 and abs(cz - z) > 3:
                         continue
                     dd = d2(c["pos"], (x, y))
-                    if dd < 70 and self.safe_spot(c["pos"], obs):
+                    if dd < farm_r and self.safe_spot(c["pos"], obs):
                         cands.append((dd + 10, "crate", c["pos"], c))
                 for n in npcs:
                     dd = d2(n["pos"], (x, y))
-                    if dd < 70 and self.safe_spot(n["pos"], obs):
+                    if dd < farm_r and self.safe_spot(n["pos"], obs):
                         cands.append((dd + 15, "npc", n["pos"], n))
             if cands:
                 cands.sort(key=lambda c: c[0])
@@ -516,6 +527,19 @@ class Bot:
             mvx, mvy = self.steer(mvx, mvy)
         else:
             mvx, mvy, _ = self.nav_dir(goal, t)
+            if PARAMS["repel"] and mode in ("home", "pick", "cube", "crate", "npc", "drop"):
+                rx = ry = 0.0
+                for m in enemies:
+                    R = 65.0 if "lightning" in (m.get("weapons") or []) and not light else 40.0
+                    if m["_d"] < R:
+                        w = (R - m["_d"]) / R
+                        rx += (x - m["pos"][0]) / max(m["_d"], 1) * w
+                        ry += (y - m["pos"][1]) / max(m["_d"], 1) * w
+                if rx or ry:
+                    mvx += rx * PARAMS["repel"]
+                    mvy += ry * PARAMS["repel"]
+                    n = math.hypot(mvx, mvy) or 1
+                    mvx, mvy = mvx / n, mvy / n
             if mvx or mvy:
                 mvx, mvy = self.steer(mvx, mvy, look=4.0)
         moving = abs(mvx) + abs(mvy) > 0.1

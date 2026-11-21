@@ -85,6 +85,11 @@ class World:
         self.gtop, self.ovb, self.ovt = gtop, ovb, ovt
         # surface for line of sight / ground walkers: terrain or anchored roof
         self.S = np.maximum(self.T, gtop)
+        self.Sf = self.S.ravel()
+        self.ovbf = self.ovb.ravel()
+        self.ovtf = self.ovt.ravel()
+        self.has_ov = bool((self.ovb < POS).any())
+        self._tc = {}
         self.trees = w.get("trees")
         self._build_nav()
 
@@ -120,24 +125,37 @@ class World:
         return b["minX"] + margin <= x <= b["maxX"] - margin and b["minY"] + margin <= y <= b["maxY"] - margin
 
     # ---------- line of sight ----------
+    def _tline(self, n):
+        t = self._tc.get(n)
+        if t is None:
+            t = np.arange(1, n, dtype=np.float64) / n
+            self._tc[n] = t
+        return t
+
     def los(self, a, b, step=1.0):
         """True if the segment a->b (3D) is not blocked by terrain or prisms."""
         ax, ay, az = a
         bx, by, bz = b
-        d = math.sqrt((bx - ax) ** 2 + (by - ay) ** 2)
+        dx, dy = bx - ax, by - ay
+        d = math.sqrt(dx * dx + dy * dy)
         n = int(d / step)
         if n < 2:
             return True
-        t = np.linspace(0.0, 1.0, n + 1)[1:-1]
-        xs = ax + (bx - ax) * t
-        ys = ay + (by - ay) * t
+        t = self._tline(n)
+        ii = (ax - self.x0 + 0.5 + dx * t).astype(np.intp)
+        jj = (ay - self.y0 + 0.5 + dy * t).astype(np.intp)
+        if not (0 <= ax - self.x0 < self.nx - 1 and 0 <= bx - self.x0 < self.nx - 1
+                and 0 <= ay - self.y0 < self.ny - 1 and 0 <= by - self.y0 < self.ny - 1):
+            np.clip(ii, 0, self.nx - 1, out=ii)
+            np.clip(jj, 0, self.ny - 1, out=jj)
         zs = az + (bz - az) * t
-        ii = np.clip(np.rint(xs - self.x0).astype(np.int32), 0, self.nx - 1)
-        jj = np.clip(np.rint(ys - self.y0).astype(np.int32), 0, self.ny - 1)
-        if (zs < self.S[jj, ii]).any():
+        flat = jj * self.nx + ii
+        if (zs < self.Sf[flat]).any():
             return False
-        if ((zs > self.ovb[jj, ii]) & (zs < self.ovt[jj, ii])).any():
-            return False
+        if self.has_ov:
+            ob = self.ovbf[flat]
+            if ((zs > ob) & (zs < self.ovtf[flat])).any():
+                return False
         return True
 
     def ray_hit(self, a, b, step=1.0):

@@ -164,6 +164,8 @@ class Match:
                 self.mechs[s].name = pol.name
         self.setup_loot()
         self.procs = {}
+        self._vis_cache = {}
+        self._vis_tick = -1
 
     # ------------------------------------------------------------------ setup
     def rand_ground(self, center=None, radius=None, tries=500):
@@ -529,7 +531,18 @@ class Match:
 
     # ------------------------------------------------------------------ observation
     def visible(self, m, p, top=None, fov=True):
-        """Can mech m see point p (feet)? top: height of object."""
+        """Can mech m see point p (feet)? top: height of object. Cached per tick."""
+        key = (m.id, id(p), top)
+        c = self._vis_cache
+        if self._vis_tick != self.tick:
+            c.clear()
+            self._vis_tick = self.tick
+        r = c.get(key)
+        if r is None:
+            r = c[key] = self._visible(m, p, top)
+        return r
+
+    def _visible(self, m, p, top=None):
         ex, ey, ez = m.pos[0], m.pos[1], m.pos[2] + m.stats["eye_height"]
         dx, dy = p[0] - ex, p[1] - ey
         d = math.hypot(dx, dy)
