@@ -352,7 +352,8 @@ class Match:
     def results(self):
         return [{"slot": m.id, "name": m.name, "place": m.place, "kills": m.kills, "cubes": m.cubes,
                  "death_t": (m.death_tick or self.tick) / 20.0, "late": m.late,
-                 "drops": getattr(m, "drops_taken", 0)} for m in self.mechs]
+                 "drops": getattr(m, "drops_taken", 0),
+                 "w2": (m.weapons[1] or {}).get("kind") if m.weapons[1] else None} for m in self.mechs]
 
     # ------------------------------------------------------------------ decisions
     def decide(self):
