@@ -45,6 +45,7 @@ PARAMS = {
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
     "chase_hp": float(os.environ.get("KFE_CHASE_HP", 0.4)),
     "group": int(os.environ.get("KFE_GROUP", 1)),
+    "group_nolight": int(os.environ.get("KFE_GROUP_NOLIGHT", 0)),
     "tgt_laser": float(os.environ.get("KFE_TGT_LASER", 0)),
     "seek_w_r": float(os.environ.get("KFE_SEEK_W_R", 90)),
     "seek_w_cost": float(os.environ.get("KFE_SEEK_W_COST", 0.7)),
@@ -617,7 +618,8 @@ class Bot:
                 self.strafe_until = t + self.rng.uniform(PARAMS["strafe_lo"], PARAMS["strafe_hi"])
             px, py = -uy * self.strafe, ux * self.strafe
             mx, my = ux * radial + px * 0.9, uy * radial + py * 0.9
-            if PARAMS["group"] and (not self.ffa or PARAMS["group_ffa"]):
+            if PARAMS["group"] and (not self.ffa or PARAMS["group_ffa"]) \
+                    and not (PARAMS["group_nolight"] and light is not None and laser is None):
                 grp = [m for m in enemies if m["_d"] < PARAMS["group_r"] and (m["_los"] or m["_threat"])]
                 if len(grp) >= 2:
                     cx_ = sum(m["pos"][0] for m in grp) / len(grp) - x
