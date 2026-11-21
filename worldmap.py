@@ -93,6 +93,7 @@ class World:
         self.trees = w.get("trees")
         self._build_nav()
         self._build_roofs()
+        self._build_components()
 
     # ---------- sampling ----------
     def cell(self, x, y):
@@ -239,6 +240,43 @@ class World:
         self.perch_y = (self.y0 + jj).astype(np.float64)
         self.perch_h = g[jj, ii].astype(np.float64)
         self.perch_d = depth[jj, ii].astype(np.float64)
+
+    def _build_components(self):
+        """Label connected free nav cells (8-neighborhood, no corner cutting); comp_main is the largest region."""
+        from collections import deque
+        gnx, gny = self.gnx, self.gny
+        free = self.nav_flat
+        comp = [-1] * (gnx * gny)
+        sizes = []
+        for s0 in range(gnx * gny):
+            if not free[s0] or comp[s0] >= 0:
+                continue
+            cid = len(sizes)
+            comp[s0] = cid
+            q = deque([s0])
+            n = 0
+            while q:
+                c = q.popleft()
+                n += 1
+                cj, ci = divmod(c, gnx)
+                for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+                    ni, nj = ci + di, cj + dj
+                    if ni < 0 or nj < 0 or ni >= gnx or nj >= gny:
+                        continue
+                    nb = nj * gnx + ni
+                    if comp[nb] >= 0 or not free[nb]:
+                        continue
+                    if di and dj and not (free[cj * gnx + ni] and free[nj * gnx + ci]):
+                        continue
+                    comp[nb] = cid
+                    q.append(nb)
+            sizes.append(n)
+        self.comp = comp
+        self.comp_main = max(range(len(sizes)), key=lambda i: sizes[i]) if sizes else -1
+
+    def comp_at(self, x, y):
+        gj, gi = self.nearest_free(*self.nav_cell(x, y), maxr=3)
+        return self.comp[gj * self.gnx + gi] if self.nav_free[gj, gi] else -1
 
     def free_at(self, x, y):
         j, i = self.cell(x, y)

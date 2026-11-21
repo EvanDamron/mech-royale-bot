@@ -18,6 +18,8 @@ from worldmap import World  # noqa: E402
 TAU = 2 * math.pi
 LAT = 0.075          # our action lands about this long after the observation
 DEBUG = bool(int(os.environ.get("KFE_DEBUG", 0)))
+USE_DROPS = bool(int(os.environ.get("K2_DROPS", 0)))       # go for supply drops (giddy ships with this off)
+OPENING_HUNT = bool(int(os.environ.get("K2_OPENING", 0)))   # walk far for a laser in the first 20 s (giddy does not)
 
 UPG_LASER = ["plating", "armor", "laser_damage", "laser_charge", "nanites", "gun_damage", "gun_rate",
              "lightning_efficiency", "lightning_range", "servos", "gun_mag", "gun_velocity", "gyros", "lightning_chain",
@@ -485,6 +487,10 @@ class Bot:
         P = self.P
         W = self.W
 
+        my_comp = W.comp_at(x, y)
+        if my_comp < 0:
+            my_comp = W.comp_main
+
         def consider(kind, oid, pos, value):
             nonlocal best
             if self.bad.get(oid, -1) > now:
@@ -495,6 +501,8 @@ class Bot:
             if now + d * 1.4 / me["stats"].get("walk_speed", 11.7) + 5 > self.zone_deadline(z, pos[0], pos[1], 6):
                 return
             if pos[2] - W.terrain(pos[0], pos[1]) > 3.2:
+                return
+            if W.comp_at(pos[0], pos[1]) != my_comp:
                 return
             u = value / (d + 18)
             if oid == self.loot_id:
@@ -523,6 +531,13 @@ class Bot:
                 for n in self.npcs.values():
                     if now - n.seen < 12 and hyp(n.pos[0] - x, n.pos[1] - y) < P["loot_r"]:
                         consider("npc", n.id, n.pos, 85.0)
+        if USE_DROPS and not danger:
+            for d in o.get("drops") or []:
+                dd = hyp(d["pos"][0] - x, d["pos"][1] - y)
+                if d.get("holder") not in (None, self.slot) and d.get("lands_in", 0) <= 0:
+                    continue
+                if dd / me["stats"].get("walk_speed", 11.7) < d.get("lands_in", 0) + 25:
+                    consider("drop", d["id"], d["pos"], 260.0)
         if best is None:
             self.loot_id = None
             return None
@@ -618,7 +633,7 @@ class Bot:
             self.opening = opening
             if not self.prac_on:
                 self.P = dict(FFA)
-                if opening:
+                if opening and OPENING_HUNT:
                     self.P.update(laser_seek=240.0, loot_r=150.0)
         z = o["zone"]
         if self.hold_start != z["shrink_start"]:
@@ -831,6 +846,8 @@ class Bot:
                         mx, my = self.travel(me, pos[0], pos[1])
                 else:
                     mx, my = self.travel(me, pos[0], pos[1])
+                    if kind == "drop" and hyp(pos[0] - x, pos[1] - y) < 2.5:
+                        mx = my = 0.0
             elif zdist > 3 and (not P["ghost"] or z["next_radius"] <= 30):
                 mx, my = self.travel(me, zgx, zgy)
                 mode = "zone-walk"
