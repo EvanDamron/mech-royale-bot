@@ -45,6 +45,9 @@ PARAMS = {
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
     "chase_hp": float(os.environ.get("KFE_CHASE_HP", 0.4)),
     "group": int(os.environ.get("KFE_GROUP", 1)),
+    "seek_w_r": float(os.environ.get("KFE_SEEK_W_R", 90)),
+    "seek_w_cost": float(os.environ.get("KFE_SEEK_W_COST", 0.7)),
+    "scan360": int(os.environ.get("KFE_SCAN360", 0)),
     "drop_pri": int(os.environ.get("KFE_DROP_PRI", 1)),
     "heal_hp": float(os.environ.get("KFE_HEAL_HP", 0)),
     "group_r": float(os.environ.get("KFE_GROUP_R", 200)),
@@ -685,8 +688,10 @@ class Bot:
                 mode = "heal"
         if goal is None and PARAMS["farm"]:
             cands = []
-            if want_pick and want_pick[0] < 90 and self.safe_spot(want_pick[1]["pos"], obs):
-                cands.append((want_pick[0] * 0.7, "pick", want_pick[1]["pos"], None))
+            seek_r = PARAMS["seek_w_r"] if weapons[1] is None else 90
+            if want_pick and want_pick[0] < seek_r and self.safe_spot(want_pick[1]["pos"], obs):
+                w_ = 0.7 if weapons[1] is not None else PARAMS["seek_w_cost"]
+                cands.append((want_pick[0] * w_, "pick", want_pick[1]["pos"], None))
             for c in obs["cubes"]:
                 if abs(c["pos"][2] - W.terrain(c["pos"][0], c["pos"][1])) > 3 and abs(c["pos"][2] - z) > 3:
                     continue
@@ -917,7 +922,10 @@ class Bot:
                         base = math.atan2(mvy, mvx)
                     else:
                         base = math.atan2(nc[1] - y, nc[0] - x) if d_next > 5 else 0.0
-                    look = base + 1.1 * math.sin(t * 0.9)
+                    if PARAMS["scan360"] and weapons[1] is None and not enemies:
+                        look = base + math.pi * math.sin(t * 0.7)
+                    else:
+                        look = base + 1.1 * math.sin(t * 0.9)
                 aim = [look, 0.0]
             # reload when nothing to shoot
             if gun is not None and gun.get("reload", 0) <= 0 and gun.get("ammo", 99) < gun["stats"]["mag"] * 0.6:
