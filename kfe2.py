@@ -19,6 +19,7 @@ TAU = 2 * math.pi
 LAT = 0.075          # our action lands about this long after the observation
 DEBUG = bool(int(os.environ.get("KFE_DEBUG", 0)))
 PARTIAL_COVER = bool(int(os.environ.get("K2_PARTIAL", 0)))  # no full cover: go where the fewest threats can see us
+WITHDRAW = bool(int(os.environ.get("K2_WITHDRAW", 1)))       # swamped, no cover, no target: back away instead of standing
 USE_DROPS = bool(int(os.environ.get("K2_DROPS", 0)))       # go for supply drops (giddy ships with this off)
 OPENING_HUNT = bool(int(os.environ.get("K2_OPENING", 0)))   # walk far for a laser in the first 20 s (giddy does not)
 
@@ -393,6 +394,28 @@ class Bot:
             return None
         self.cover_goal = (best[1], best[2])
         return self.travel_cover(me)
+
+    def withdraw(self, o, seen):
+        """Step away from the centroid of nearby enemies along a walkable, in-zone direction."""
+        me = o["self"]
+        x, y = me["pos"][0], me["pos"][1]
+        near = [t for t in seen if hyp(t.pos[0] - x, t.pos[1] - y) < 200]
+        if not near:
+            return None
+        cx = sum(t.pos[0] for t in near) / len(near) - x
+        cy = sum(t.pos[1] for t in near) / len(near) - y
+        base = math.atan2(-cy, -cx)
+        best = None
+        for off in (0, 0.4, -0.4, 0.8, -0.8, 1.2, -1.2, 1.6, -1.6):
+            a = base + off
+            ex, ey = x + math.cos(a) * 12, y + math.sin(a) * 12
+            if not self.W.walk_clear((x, y), (ex, ey)):
+                continue
+            pen = self.zone_penalty(o["zone"], ex, ey, self.now)
+            sc = abs(off) * 10 + pen
+            if best is None or sc < best[0]:
+                best = (sc, math.cos(a), math.sin(a))
+        return (best[1], best[2]) if best else None
 
     def travel_cover(self, me):
         if self.cover_goal is None:
@@ -794,6 +817,12 @@ class Bot:
             else:
                 mx, my = self.travel(me, zgx, zgy)
                 mode = "flee"
+                if WITHDRAW and not (mx or my):
+                    w = self.withdraw(o, seen)
+                    if w is not None:
+                        mx, my = w
+                        boost = me["energy"] > 40
+                        mode = "withdraw"
         elif target is None and now - self.last_hurt < 2.5 and not late and P["ghost"]:
             ghost = Track(-1)
             ghost.kind = "mech"
