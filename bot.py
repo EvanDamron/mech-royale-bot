@@ -16,6 +16,7 @@ from worldmap import World  # noqa: E402
 
 TAU = 2 * math.pi
 DEBUG = bool(int(os.environ.get("KFE_DEBUG", 0)))
+SALT = int(os.environ.get("KFE_SALT", 0))  # changes strafe timing only
 
 UPGRADE_PRIO = [
     "armor", "plating", "nanites", "laser_damage", "laser_charge", "gun_damage", "gun_rate",
@@ -98,7 +99,7 @@ class Bot:
     def __init__(self, hello):
         self.cfg = hello["config"]
         self.id = hello["slot"]
-        self.rng = random.Random(hello.get("seed", 0))
+        self.rng = random.Random(hello.get("seed", 0) + SALT)
         t0 = time.time()
         self.W = World(hello["map"]["dir"])
         import numpy as np
