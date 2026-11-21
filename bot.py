@@ -45,6 +45,7 @@ PARAMS = {
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
     "chase_hp": float(os.environ.get("KFE_CHASE_HP", 0.4)),
     "group": int(os.environ.get("KFE_GROUP", 1)),
+    "drop_pri": int(os.environ.get("KFE_DROP_PRI", 0)),
     "heal_hp": float(os.environ.get("KFE_HEAL_HP", 0)),
     "group_r": float(os.environ.get("KFE_GROUP_R", 200)),
     "group_ffa": int(os.environ.get("KFE_GROUP_FFA", 0)),
@@ -556,6 +557,14 @@ class Bot:
                     goal = self.cover
                     mode = "cover"
                     boost = me["energy"] > 25
+        if goal is None and PARAMS["drop_pri"] and obs.get("drops") and not self.retreating:
+            for dr in obs["drops"]:
+                if dr.get("holder") == self.id and dr.get("lands_in", 1) <= 0:
+                    dp = dr["pos"]
+                    if d2(dp, (x, y)) < dr.get("radius", 8):
+                        goal = (dp[0], dp[1]) if d2(dp, (x, y)) > 3 else (x, y)
+                        mode = "capture"
+                        break
         # hide behind cover while the gun reloads (and the laser is not about to fire)
         if goal is None and PARAMS["hide_reload"] and target is not None and target["_los"] and not self.retreating \
                 and gun is not None and gun.get("reload", 0) > 0.6 and target["_d"] < 170 \
@@ -644,6 +653,21 @@ class Bot:
             face = (face_yaw, 0.0)
 
         farm_target = None
+        if goal is None and PARAMS["drop_pri"] and obs.get("drops") and hp_frac > 0.25:
+            for dr in obs["drops"]:
+                dp = dr["pos"]
+                dd = d2(dp, (x, y))
+                if dd > 250 or not self.safe_spot(dp, obs, 8):
+                    continue
+                if dr.get("holder") not in (None, self.id):
+                    continue
+                if dr.get("lands_in", 0) - dd / max(walk, 1) > 12:
+                    continue
+                if any(d2(m["pos"], dp) < 45 for m in enemies):
+                    continue
+                goal = (dp[0], dp[1]) if dd > 3 else (x, y)
+                mode = "drop"
+                break
         if goal is None and PARAMS["heal_hp"] and hp_frac < PARAMS["heal_hp"] \
                 and not any(m["_los"] for m in enemies) and t - self.last_hurt > 1.0 \
                 and not any(d2(lp, (x, y)) < 60 for lt, lp in self.loot_spots):
