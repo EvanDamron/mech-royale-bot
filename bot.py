@@ -45,7 +45,7 @@ PARAMS = {
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
     "chase_hp": float(os.environ.get("KFE_CHASE_HP", 0.4)),
     "group": int(os.environ.get("KFE_GROUP", 1)),
-    "drop_pri": int(os.environ.get("KFE_DROP_PRI", 0)),
+    "drop_pri": int(os.environ.get("KFE_DROP_PRI", 1)),
     "heal_hp": float(os.environ.get("KFE_HEAL_HP", 0)),
     "group_r": float(os.environ.get("KFE_GROUP_R", 200)),
     "group_ffa": int(os.environ.get("KFE_GROUP_FFA", 0)),
