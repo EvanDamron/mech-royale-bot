@@ -42,7 +42,7 @@ PARAMS = {
     "multi_hp": float(os.environ.get("KFE_MULTI_HP", 0.6)),
     "hide_reload": int(os.environ.get("KFE_HIDE", 1)),
     "chase": int(os.environ.get("KFE_CHASE", 1)),
-    "engage": float(os.environ.get("KFE_ENGAGE", 120)),
+    "engage": float(os.environ.get("KFE_ENGAGE", 200)),
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
     "chase_hp": float(os.environ.get("KFE_CHASE_HP", 0.4)),
     "group": int(os.environ.get("KFE_GROUP", 1)),
@@ -78,7 +78,61 @@ PARAMS = {
     "strafe_lo": float(os.environ.get("KFE_STRAFE_LO", 0.5)),
     "strafe_hi": float(os.environ.get("KFE_STRAFE_HI", 1.4)),
     "unseen": int(os.environ.get("KFE_UNSEEN", 1)),
+    # --- strategy-review knobs (all off by default = the lead's behavior) ---
+    "s_obj": int(os.environ.get("S_OBJ", 1)),            # objectives (weapon, cubes, drop) pull movement even in a fight
+    "s_getw_r": float(os.environ.get("S_GETW_R", 160)),  # fetch a first laser/lightning from this far
+    "s_cube_r": float(os.environ.get("S_CUBE_R", 55)),   # bank visible cubes within this range
+    "s_drop_r": float(os.environ.get("S_DROP_R", 220)),  # go for a supply drop within this range
+    "s_drop": int(os.environ.get("S_DROP", 1)),          # (with S_OBJ) include supply drops
+    "s_obj_hp": float(os.environ.get("S_OBJ_HP", 0.3)),  # below this HP only a drop is an objective
+    "s_gun_lo": float(os.environ.get("S_GUN_LO", 35)),
+    "s_gun_hi": float(os.environ.get("S_GUN_HI", 90)),
+    "s_las_lo": float(os.environ.get("S_LAS_LO", 55)),
+    "s_las_hi": float(os.environ.get("S_LAS_HI", 130)),
+    "s_lit_lo": float(os.environ.get("S_LIT_LO", 12)),
+    "s_lit_hi": float(os.environ.get("S_LIT_HI", 30)),
+    "s_grav": int(os.environ.get("S_GRAV", 1)),          # ballistic lead on airborne targets
+    "s_ldodge": int(os.environ.get("S_LDODGE", 1)),      # step sideways when a charging laser is aimed at us
+    "s_scan": int(os.environ.get("S_SCAN", 1)),          # full-circle look at spawn and every 12 s while unarmed and idle
+    "s_focus": int(os.environ.get("S_FOCUS", 0)),        # finish what we started: lowest-HP visible target, held until dead
+    "s_pmem": int(os.environ.get("S_PMEM", 1)),          # remember seen pickups; ground test by terrain height; laser first
+    "s_laser_r": float(os.environ.get("S_LASER_R", 220)),  # (with S_PMEM) how far to walk for a first laser
+    "s_lit_r": float(os.environ.get("S_LIT_R", 110)),    # (with S_PMEM) how far to walk for a lightning gun
+    "s_flip": float(os.environ.get("S_FLIP", 0.7)),      # chance that a strafe change reverses direction
+    "s_obj_ret": int(os.environ.get("S_OBJ_RET", 0)),    # 1: while retreating only a supply drop is an objective
+    "s_ffa_perch": int(os.environ.get("S_FFA_PERCH", 0)),  # in a free-for-all, hold a deep roof inside the zone
+    "s_pace_cubes": int(os.environ.get("S_PACE_CUBES", 0)),  # >0: no fights by choice until this many cubes
+    "s_pace_t": float(os.environ.get("S_PACE_T", 100)),       # ... or this many seconds
+    "s_bdodge": int(os.environ.get("S_BDODGE", 0)),      # sidestep bullets whose closest approach is inside our hull
+    "s_bd_margin": float(os.environ.get("S_BD_MARGIN", 0.8)),
+    "s_bd_t": float(os.environ.get("S_BD_T", 0.8)),
+    "s_bd_boost": float(os.environ.get("S_BD_BOOST", 25)),
+    "s_sel": int(os.environ.get("S_SEL", 0)),              # selective engagement rule of the public top bots
+    "s_ffa_n": int(os.environ.get("S_FFA_N", 2)),          # unexplained deaths (before 150 s) that mean free-for-all
+    "s_ffa_hp": int(os.environ.get("S_FFA_HP", 2)),        # >0: also this many other mechs seen taking hits nobody aimed at us explains
+    "s_open": float(os.environ.get("S_OPEN", 0)),          # >0: until this time or a second weapon, only fight in self-defense
+    "s_ffa_sig": int(os.environ.get("S_FFA_SIG", 0)),    # also count mechs whose laser charge turns or runs past 0.65 s
+    "s_ffa": int(os.environ.get("S_FFA", 1)),            # 1: detect a free-for-all at runtime and play for placement; 2: force
 }
+if os.environ.get("S_UPG"):
+    _sets = {
+        # sustain first: regen between hunters, then bulk, then damage
+        "sustain": ["nanites", "plating", "armor", "gun_mag", "laser_damage", "lightning_efficiency", "gun_damage",
+                    "laser_charge", "gun_rate", "lightning_range", "servos", "gyros", "lightning_chain", "reactor",
+                    "capacitor", "gun_velocity", "jets", "sensors", "laser_pierce", "mortar_reload", "mortar_splash",
+                    "mortar_velocity"],
+        # bulk first
+        "bulk": ["plating", "armor", "nanites", "gun_mag", "laser_damage", "lightning_efficiency", "gun_damage",
+                 "laser_charge", "gun_rate", "lightning_range", "servos", "gyros", "lightning_chain", "reactor",
+                 "capacitor", "gun_velocity", "jets", "sensors", "laser_pierce", "mortar_reload", "mortar_splash",
+                 "mortar_velocity"],
+        # weapon damage first
+        "dmg": ["laser_damage", "lightning_efficiency", "gun_mag", "gun_damage", "laser_charge", "gun_rate",
+                "plating", "armor", "nanites", "lightning_range", "lightning_chain", "servos", "gyros", "reactor",
+                "capacitor", "gun_velocity", "jets", "sensors", "laser_pierce", "mortar_reload", "mortar_splash",
+                "mortar_velocity"],
+    }
+    UPGRADE_PRIO = _sets[os.environ["S_UPG"]]
 
 
 def wrap(a):
@@ -133,6 +187,20 @@ class Bot:
         self.ffa = False
         self.my_kills = 0
         self.rear_by = None
+        self.known_pick = {}
+        self.prev_alive = 16
+        self.aimed_t = -99.0
+        self.hp_abs = {}
+        self.hp_ev = set()
+        self.unexplained = 0
+        self.assisted = set()
+        self.charge_ep = {}
+        self.nonhouse = set()
+        self.s_place = PARAMS["s_ffa"] == 2   # free-for-all placement mode (S_FFA); the lead's self.ffa stays as it was
+        if self.s_place:
+            self.ffa = True
+        self.hp_seen = {}
+        self.hit_t = {}
         self.cur_target_t = -99
         self.fight_spot_t = -99
         self.loot_spots = []  # (t, (x, y))
@@ -220,11 +288,18 @@ class Bot:
         if abs(vz) < 3:
             vz = 0.0
         tt = 0.05
+        g = 22.0 if (PARAMS["s_grav"] and abs(tv[2]) > 1.0) else 0.0
+        if g:
+            vz = tv[2]
         for _ in range(3):
-            px, py, pz = tx + vx * tt, ty + vy * tt, tz + vz * tt
+            px, py, pz = tx + vx * tt, ty + vy * tt, tz + vz * tt - 0.5 * g * tt * tt
             dist = math.sqrt((px - mx) ** 2 + (py - my) ** 2 + (pz - mz) ** 2)
             tt = 0.05 + max(dist - 3.0, 0) / speed
-        px, py, pz = tx + vx * tt, ty + vy * tt, tz + vz * tt
+        px, py, pz = tx + vx * tt, ty + vy * tt, tz + vz * tt - 0.5 * g * tt * tt
+        if g:
+            floor = self.W.terrain(px, py) + h * 0.5
+            if pz < floor:
+                pz = floor
         hd = math.hypot(px - mx, py - my)
         return math.atan2(py - my, px - mx), math.atan2(pz - mz, max(hd, 0.1)), hd, (px, py, pz)
 
@@ -371,6 +446,7 @@ class Bot:
                     self.last_hurt = t
             elif et == "hit":
                 self.last_dealt = t
+                self.hit_t[e.get("target")] = t
             elif et == "kill":
                 self.my_kills += 1
             if et == "kill" and PARAMS["loot_kill"]:
@@ -378,7 +454,7 @@ class Bot:
                 if p is not None:
                     self.loot_spots.append((t, p))
         # free-for-all detection: in practice the house squad only dies to us early on
-        if not self.ffa and t < 200 and (16 - obs.get("alive", 16)) - self.my_kills >= 2:
+        if PARAMS["s_ffa"] == 0 and not self.ffa and t < 200 and (16 - obs.get("alive", 16)) - self.my_kills >= 2:
             self.ffa = True
             mf.log(f"FFA detected at t={t}")
         for k in [k for k, v in self.threats.items() if t - v[0] > 8]:
@@ -396,21 +472,41 @@ class Bot:
         want_pick = None
         cur2 = weapons[1]
         cur2_pref = WEAPON_PREF.get(cur2["kind"], -5) if cur2 else -5
-        for p in obs["pickups"]:
+        pick_list = obs["pickups"]
+        if PARAMS["s_pmem"]:
+            # pickups are only listed while in view; they never despawn, so remember them
+            seen_now = set()
+            for p in obs["pickups"]:
+                self.known_pick[p["id"]] = (p["kind"], p["pos"], t)
+                seen_now.add(p["id"])
+            for pid, (pk, pp, pt) in list(self.known_pick.items()):
+                if pid in seen_now:
+                    continue
+                if t - pt > 90 or (d2(pp, (x, y)) < 35 and t - pt > 1.0):
+                    del self.known_pick[pid]   # stale, or we are close enough to see it and it is not there
+            pick_list = [{"id": pid, "kind": pk, "pos": pp, "_mem": pid not in seen_now}
+                         for pid, (pk, pp, pt) in self.known_pick.items()]
+        for p in pick_list:
             pref = WEAPON_PREF.get(p["kind"], -5)
             if pref <= cur2_pref or pref < 0 or p["kind"] in slot:
                 continue
-            if abs(p["pos"][2] - z) > 3.5:
+            if PARAMS["s_pmem"]:
+                # reachable on foot: on the ground (terrain height), or on our own level
+                if abs(p["pos"][2] - W.terrain(p["pos"][0], p["pos"][1])) > 2.5 and abs(p["pos"][2] - z) > 3.5:
+                    continue
+            elif abs(p["pos"][2] - z) > 3.5:
                 continue
             dd = d2(p["pos"], (x, y))
-            if dd < reach - 0.3:
+            if PARAMS["s_pmem"] and p["kind"] != "laser" and dd > PARAMS["s_lit_r"]:
+                continue
+            if dd < reach - 0.3 and not p.get("_mem"):
                 busy = cur2 and cur2["kind"] == "laser" and cur2.get("charge", 0) > 0
                 if not busy:
                     act["take"] = p["id"]
                     if cur2:
                         act["drop"] = 1
-            if want_pick is None or dd < want_pick[0]:
-                want_pick = (dd, p)
+            if want_pick is None or dd - 40 * (p["kind"] == "laser") * PARAMS["s_pmem"] < want_pick[2]:
+                want_pick = (dd, p, dd - 40 * (p["kind"] == "laser") * PARAMS["s_pmem"])
 
         # ---- perception
         enemies = [m for m in obs["mechs"] if m["kind"] == "mech"]
@@ -431,6 +527,65 @@ class Bot:
         recent_hurt = t - self.last_hurt < 4
         for m in enemies:
             self.enemy_pos[m["id"]] = (m["pos"][0], m["pos"][1], m["pos"][2])
+        # ---- practice (house squad) or free-for-all?
+        # The house squad never fights itself, so in practice a mech only dies when we kill it (or, rarely, when the
+        # zone or a drone finishes one). Deaths we cannot account for mean other mechs are fighting each other.
+        n_kill_ev = sum(1 for e in obs["events"] if e["type"] == "kill")
+        if PARAMS["s_ffa"] == 1 and not self.s_place:
+            for m in enemies:
+                self.hp_seen[m["id"]] = (t, m["hp"] / max(m["max_hp"], 1))
+            died = self.prev_alive - obs["alive"] - n_kill_ev
+            self.prev_alive = obs["alive"]
+            for _ in range(max(died, 0)):
+                # a mech we hurt badly in the last 20 s and can no longer see explains one death (zone, drone, fall)
+                cand = [i for i, ht in self.hit_t.items() if isinstance(i, int) and i < 100 and t - ht < 20
+                        and self.hp_seen.get(i, (0, 1))[1] < 0.4 and i not in self.assisted
+                        and not any(m["id"] == i for m in enemies)]
+                if cand:
+                    self.assisted.add(cand[0])
+                else:
+                    self.unexplained += 1
+            sig = 0
+            if PARAMS["s_ffa_sig"]:
+                # house lasers hold one yaw for a fixed 0.65 s charge; a charge that turns or lasts longer is not a house bot
+                for m in enemies:
+                    ep = self.charge_ep.get(m["id"])
+                    if m.get("charging"):
+                        if ep is None or t - ep[2] > 0.25:
+                            ep = [t, m["aim"][0], t, False]
+                        # house: one fixed yaw, beam after 0.65 s. Real team bots: full 0.75 s+ charges that turn with the target.
+                        if t - ep[0] >= 0.68 or (PARAMS["s_ffa_sig"] >= 2 and t - ep[0] > 0.35
+                                                 and abs(wrap(m["aim"][0] - ep[1])) > 0.05):
+                            ep[3] = True
+                        ep[1] = m["aim"][0]
+                        ep[2] = t
+                        self.charge_ep[m["id"]] = ep
+                        if ep[3]:
+                            self.nonhouse.add(m["id"])
+                    elif ep is not None:
+                        del self.charge_ep[m["id"]]
+                sig = len(self.nonhouse)
+            if PARAMS["s_ffa_hp"]:
+                # another mech takes a real hit that is not ours while no visible mech is aiming at us: the shot was meant for it
+                aimed_now = any(m["_aimed"] and m["_d"] < 240 for m in enemies)
+                if aimed_now:
+                    self.aimed_t = t
+                for m in enemies:
+                    pv = self.hp_abs.get(m["id"])
+                    if pv is not None and t - pv[0] < 0.25 and pv[1] - m["hp"] >= 40 \
+                            and t - self.hit_t.get(m["id"], -9) > 0.6 and t - self.aimed_t > 2.0 and t - self.last_hurt > 3.0 \
+                            and "mortar" not in (m.get("weapons") or []):
+                        self.hp_ev.add(m["id"])
+                    self.hp_abs[m["id"]] = (t, m["hp"])
+            if (self.unexplained >= PARAMS["s_ffa_n"] and t < 150) or self.unexplained >= PARAMS["s_ffa_n"] + 2 or sig >= 2 \
+                    or (PARAMS["s_ffa_hp"] and len(self.hp_ev) >= PARAMS["s_ffa_hp"]):
+                self.ffa = True
+                self.s_place = True
+                mf.log(f"free-for-all detected at t={t:.1f} (unexplained deaths {self.unexplained}, non-house lasers {sig})")
+                if os.environ.get("S_FFA_LOG"):
+                    with open(os.environ["S_FFA_LOG"], "a") as fh:
+                        fh.write(f"{t:.1f} unexplained={self.unexplained} sig={sig} hp={len(self.hp_ev)} alive={obs['alive']} kills={self.my_kills}\n")
+        evade = PARAMS["evade"] or self.s_place or (self.ffa and PARAMS["evade_ffa"])
         self.loot_spots = [(lt, lp) for lt, lp in self.loot_spots if t - lt < 20 and d2(lp, (x, y)) > 2.5]
 
         # target choice
@@ -456,12 +611,39 @@ class Bot:
                 if prev is not None and prev is not target and prev["_los"] \
                         and score(prev) < score(target) + PARAMS["sticky"]:
                     target = prev
+            if PARAMS["s_focus"]:
+                # A target we stop shooting regenerates 45 HP/s after 5 s, so damage spread over several mechs is wasted.
+                vis = [m for m in cand if m["_los"] and m["_d"] < 170]
+                if vis:
+                    def fscore(m):
+                        return m["hp"] + 2.0 * m["_d"] - (150 if m["_threat"] else 0)
+                    target = min(vis, key=fscore)
+                    prev = next((m for m in vis if m["id"] == self.cur_target), None)
+                    if prev is not None and prev is not target and t - self.cur_target_t < 3.0 \
+                            and fscore(prev) < fscore(target) + 350:
+                        target = prev
             self.cur_target = target["id"]
             self.cur_target_t = t
 
         engaged = target is not None and (target["_d"] <= PARAMS["engage"] or target["_threat"] or recent_hurt
                                           or target["hp"] <= target["max_hp"] * 0.35)
-        if (PARAMS["evade"] or (self.ffa and PARAMS["evade_ffa"])) and target is not None:
+        if PARAMS["s_sel"] and target is not None:
+            # the rule two public top bots share in squad mode: fight what is near, hitting us, coming at us, weak, or aiming at us
+            tp_, tv_ = target["pos"], target["vel"]
+            dx_, dy_ = x - tp_[0], y - tp_[1]
+            closing = ((tv_[0] - me["vel"][0]) * dx_ + (tv_[1] - me["vel"][1]) * dy_) / max(target["_d"], 1.0)
+            late_ = obs["alive"] <= 3 or obs["zone"]["next_radius"] <= 70
+            engaged = target["_d"] <= 240 and (
+                late_ or target["_d"] < 60 or target["_threat"]
+                or (closing > 3 and target["_d"] < 180)
+                or (target["hp"] < 0.4 * target["max_hp"] and target["_d"] < 160)
+                or (target["_aimed"] and target["_d"] < 190))
+        # kill pacing (experiment): until we hold enough cubes, do not start fights; farm instead
+        pacing = PARAMS["s_pace_cubes"] > 0 and not self.s_place and t < PARAMS["s_pace_t"] \
+            and me.get("cubes", 0) < PARAMS["s_pace_cubes"]
+        if PARAMS["s_open"] and t < PARAMS["s_open"] and weapons[1] is None and not self.s_place:
+            pacing = True
+        if (evade or pacing) and target is not None:
             engaged = (target["_d"] < 35 or (t - self.last_hurt < PARAMS["evade_mem"])
                        or (target["hp"] <= target["max_hp"] * 0.3 and target["_d"] < 90))
 
@@ -483,6 +665,8 @@ class Bot:
         walk = st.get("walk_speed", 11.7)
         d_next = d2((x, y), nc)
         anchor_r = min(nr * 0.5, 60) if nr > 30 else nr * 0.3
+        if self.s_place and nr > 70:
+            anchor_r = nr * 0.7   # placement play: stay off the middle, where everyone converges
         if d_next > anchor_r:
             k = anchor_r / max(d_next, 1e-6)
             home = (nc[0] + (x - nc[0]) * k, nc[1] + (y - nc[1]) * k)
@@ -508,7 +692,7 @@ class Bot:
             mode = "zone"
             boost = (not me["in_zone"]) or need > time_left - 6
         perch_mode = None
-        if goal is None and PARAMS["perch"] and t >= PARAMS["perch_t"]:
+        if goal is None and (PARAMS["perch"] or (self.s_place and PARAMS["s_ffa_perch"])) and t >= PARAMS["perch_t"]:
             if self.perch is None or t - self.perch_t > 2.0:
                 self.perch = self.pick_perch(obs, zc, zr)
                 self.perch_t = t
@@ -557,6 +741,70 @@ class Bot:
             self.climb_since = None
         if perch_mode is None:
             self.climbing = False
+        # ---- objectives: a first weapon, cubes, a supply drop. Legs go there, the torso keeps fighting.
+        obj_mode = None
+        if goal is None and PARAMS["s_obj"]:
+            best_o = None
+            low = (hp_frac < PARAMS["s_obj_hp"] and recent_hurt) or (self.retreating and PARAMS["s_obj_ret"])
+
+            def crowd(p, r):
+                return sum(1 for m in enemies if d2(m["pos"], p) < r)
+            if PARAMS["s_drop"]:
+                for dr in obs.get("drops") or []:
+                    dp = dr["pos"]
+                    dd = d2(dp, (x, y))
+                    if dd > PARAMS["s_drop_r"] or not self.safe_spot(dp, obs, 6):
+                        continue
+                    if dr.get("lands_in", 0) > dd / walk + 5:
+                        continue
+                    rr = dr.get("radius", 8)
+                    if crowd(dp, rr + 1) and dd > rr:
+                        continue
+                    val = 260.0 if hp_frac < 0.8 else 170.0
+                    c = dd - val
+                    if best_o is None or c < best_o[0]:
+                        best_o = (c, "drop", dp, rr)
+            if not low:
+                for c_ in obs["cubes"]:
+                    cp = c_["pos"]
+                    if abs(cp[2] - z) > 3.5 and abs(cp[2] - W.terrain(cp[0], cp[1])) > 3:
+                        continue
+                    dd = d2(cp, (x, y))
+                    if dd < PARAMS["s_cube_r"] and self.safe_spot(cp, obs, 2) and crowd(cp, 20) < 2:
+                        c = dd - 110.0
+                        if best_o is None or c < best_o[0]:
+                            best_o = (c, "cube", cp, 0)
+                for lt, lp in self.loot_spots:
+                    dd = d2(lp, (x, y))
+                    if dd < PARAMS["s_cube_r"] + 25 and self.safe_spot(lp, obs, 2) and crowd(lp, 20) < 2:
+                        c = dd - 100.0
+                        if best_o is None or c < best_o[0]:
+                            best_o = (c, "cube", lp, 0)
+                if want_pick is not None:
+                    wr = PARAMS["s_getw_r"] if cur2 is None else 60.0
+                    wval = 150.0 if cur2 is None else 70.0
+                    if PARAMS["s_pmem"] and want_pick[1]["kind"] == "laser":
+                        wr = PARAMS["s_laser_r"] if cur2 is None else PARAMS["s_laser_r"] * 0.55
+                        wval = wr - 10.0
+                    wp = want_pick[1]["pos"]
+                    if want_pick[0] < wr and self.safe_spot(wp, obs, 2) and crowd(wp, 20) < 2:
+                        c = want_pick[0] - wval
+                        if best_o is None or c < best_o[0]:
+                            best_o = (c, "weapon", wp, 0)
+            if best_o is not None and best_o[0] < 0:
+                _, obj_mode, op, orad = best_o
+                dd = d2(op, (x, y))
+                if obj_mode == "drop" and dd < orad - 3.0:
+                    # hold the ring: small side steps keep us inside it
+                    if t > self.strafe_until:
+                        self.strafe = -self.strafe
+                        self.strafe_until = t + self.rng.uniform(0.3, 0.7)
+                    a_ = math.atan2(op[1] - y, op[0] - x) + 1.57 * self.strafe
+                    goal = (op[0] + math.cos(a_) * 3.0, op[1] + math.sin(a_) * 3.0)
+                else:
+                    goal = (op[0], op[1])
+                    boost = me["energy"] > 30 and dd > 15
+                mode = "o-" + obj_mode
         if goal is None and self.retreating and (enemies or recent_hurt):
             threats = [m for m in enemies if m["_d"] < 200] or []
             if threats:
@@ -585,7 +833,7 @@ class Bot:
             if self.cover:
                 goal = self.cover
                 mode = "hide"
-        if goal is None and (PARAMS["evade"] or (self.ffa and PARAMS["evade_ffa"])) and not engaged and not self.retreating:
+        if goal is None and evade and not engaged and not self.retreating:
             seen = [m for m in enemies if m["_d"] < 170 and m["_los"]]
             if seen:
                 if self.cover is None or t - self.cover_t > 1.0:
@@ -598,11 +846,11 @@ class Bot:
             mode = "fight"
             # range band
             if light and (not laser):
-                lo, hi = 12, 30
+                lo, hi = PARAMS["s_lit_lo"], PARAMS["s_lit_hi"]
             elif laser:
-                lo, hi = 55, 130
+                lo, hi = PARAMS["s_las_lo"], PARAMS["s_las_hi"]
             else:
-                lo, hi = 35, 90
+                lo, hi = PARAMS["s_gun_lo"], PARAMS["s_gun_hi"]
             td = target["_d"]
             tx, ty = target["pos"][0], target["pos"][1]
             ux, uy = (tx - x) / max(td, 1e-6), (ty - y) / max(td, 1e-6)
@@ -615,7 +863,7 @@ class Bot:
                 radial = -1.0
                 boost = me["energy"] > 25
             if t > self.strafe_until:
-                self.strafe = -self.strafe if self.rng.random() < 0.7 else self.strafe
+                self.strafe = -self.strafe if self.rng.random() < PARAMS["s_flip"] else self.strafe
                 self.strafe_until = t + self.rng.uniform(PARAMS["strafe_lo"], PARAMS["strafe_hi"])
             px, py = -uy * self.strafe, ux * self.strafe
             mx, my = ux * radial + px * 0.9, uy * radial + py * 0.9
@@ -769,7 +1017,7 @@ class Bot:
             mvx, mvy = self.steer(mvx, mvy)
         else:
             mvx, mvy, _ = self.nav_dir(goal, t)
-            if PARAMS["repel"] and mode in ("home", "pick", "cube", "crate", "npc", "drop"):
+            if PARAMS["repel"] and mode in ("home", "pick", "cube", "crate", "npc", "drop") and obj_mode is None:
                 rx = ry = 0.0
                 avoid = list(enemies)
                 if PARAMS["npc_avoid"] and mode != "npc":
@@ -793,6 +1041,82 @@ class Bot:
                     mvx, mvy = mvx / n, mvy / n
             if mvx or mvy:
                 mvx, mvy = self.steer(mvx, mvy, look=4.0)
+        # House lasers lock their yaw when the charge starts and fire along it 0.65 s later (real replay: 39 of 39),
+        # so leaving that line always dodges the beam.
+        if PARAMS["s_ldodge"] and perch_mode != "climb":
+            vx_, vy_ = me["vel"][0], me["vel"][1]
+            for m in enemies:
+                if not m.get("charging") or not m["_los"]:
+                    continue
+                ay = m["aim"][0]
+                ca, sa = math.cos(ay), math.sin(ay)
+                dx_, dy_ = x - m["pos"][0], y - m["pos"][1]
+                along = dx_ * ca + dy_ * sa
+                if along < 0 or along > 300:
+                    continue
+                off = -dx_ * sa + dy_ * ca
+                if abs(off) > 9.0 + st.get("radius", 2.5):
+                    continue
+                vperp = -vx_ * sa + vy_ * ca
+                if abs(off) > 1.5:
+                    side = 1.0 if off > 0 else -1.0
+                elif abs(vperp) > 1.0:
+                    side = 1.0 if vperp > 0 else -1.0
+                else:
+                    side = float(self.strafe)
+                px_, py_ = -sa * side, ca * side
+                if not W.walk_clear((x, y), (x + px_ * 5, y + py_ * 5)):
+                    if W.walk_clear((x, y), (x - px_ * 5, y - py_ * 5)) and abs(off) < 3.5:
+                        px_, py_ = -px_, -py_
+                mvx, mvy = px_, py_
+                boost = me["energy"] > 8
+                mode = "ldodge"
+                break
+        # Sidestep bullets already in the air: house guns aim a linear lead at our current velocity, so a bullet
+        # whose closest approach is inside our hull only lands if we keep that velocity for the rest of its flight.
+        if PARAMS["s_bdodge"] and perch_mode != "climb" and mode != "ldodge" and obs.get("projectiles"):
+            hh_ = st.get("height", 9.0) * 0.5
+            rad_ = st.get("radius", 2.5) + 0.3 + PARAMS["s_bd_margin"]
+            cz_ = z + hh_
+            sv = me["vel"]
+            ddx = ddy = 0.0
+            nb = 0
+            for p in obs["projectiles"]:
+                if p["kind"] == "mortar":
+                    continue
+                pp, pv = p["pos"], p["vel"]
+                rvx, rvy, rvz = pv[0] - sv[0], pv[1] - sv[1], pv[2] - sv[2]
+                v2 = rvx * rvx + rvy * rvy + rvz * rvz
+                if v2 < 1.0:
+                    continue
+                tc = ((x - pp[0]) * rvx + (y - pp[1]) * rvy + (cz_ - pp[2]) * rvz) / v2
+                if tc <= 0.03 or tc > PARAMS["s_bd_t"]:
+                    continue
+                m0, m1, m2 = pp[0] + rvx * tc - x, pp[1] + rvy * tc - y, pp[2] + rvz * tc - cz_
+                if math.hypot(m0, m1) > rad_ or abs(m2) > hh_ + 0.8:
+                    continue
+                vh = math.hypot(pv[0], pv[1])
+                if vh < 1.0:
+                    continue
+                ux_, uy_ = -pv[1] / vh, pv[0] / vh
+                side = ux_ * m0 + uy_ * m1          # where the bullet passes relative to us, across its path
+                if abs(side) < 0.4:
+                    # dead center: keep our current sideways drift if we have one, else the strafe side
+                    drift = ux_ * sv[0] + uy_ * sv[1]
+                    sgn = (1.0 if drift > 0 else -1.0) if abs(drift) > 1.0 else float(self.strafe)
+                else:
+                    sgn = -1.0 if side > 0 else 1.0  # step away from the side it passes on
+                ddx += ux_ * sgn
+                ddy += uy_ * sgn
+                nb += 1
+            if nb and (ddx or ddy):
+                dn_ = math.hypot(ddx, ddy)
+                ddx, ddy = ddx / dn_, ddy / dn_
+                if not W.walk_clear((x, y), (x + ddx * 4, y + ddy * 4)) and W.walk_clear((x, y), (x - ddx * 4, y - ddy * 4)):
+                    ddx, ddy = -ddx, -ddy
+                mvx, mvy = ddx, ddy
+                boost = me["energy"] > PARAMS["s_bd_boost"]
+                mode = "bdodge"
         moving = abs(mvx) + abs(mvy) > 0.1
 
         jump = False
@@ -934,6 +1258,8 @@ class Bot:
                         look = base + math.pi * math.sin(t * 0.7)
                     else:
                         look = base + 1.1 * math.sin(t * 0.9)
+                    if PARAMS["s_scan"] and weapons[1] is None and (t % 12.0) < 1.9:
+                        look = self.aim[0] + 2.4   # spin: pickups and crates are only listed while in view
                 aim = [look, 0.0]
             # reload when nothing to shoot
             if gun is not None and gun.get("reload", 0) <= 0 and gun.get("ammo", 99) < gun["stats"]["mag"] * 0.6:
