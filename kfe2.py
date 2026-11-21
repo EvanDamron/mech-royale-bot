@@ -338,11 +338,12 @@ class Bot:
         best = None
         checked = 0
         h0 = 0
-        while h0 < len(queue) and checked < 160:
+        t_end = time.perf_counter() + 0.010
+        while h0 < len(queue) and checked < 120 and time.perf_counter() < t_end:
             c = queue[h0]
             h0 += 1
             steps = seen_c[c]
-            if steps > 30 or (best is not None and steps * 8 > best[0] + 30):
+            if steps > 25 or (best is not None and steps * 8 > best[0] + 30):
                 break
             cj, ci = divmod(c, gnx)
             if steps > 0:
