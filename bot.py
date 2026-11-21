@@ -45,6 +45,7 @@ PARAMS = {
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
     "chase_hp": float(os.environ.get("KFE_CHASE_HP", 0.4)),
     "group": int(os.environ.get("KFE_GROUP", 1)),
+    "tgt_laser": float(os.environ.get("KFE_TGT_LASER", 0)),
     "seek_w_r": float(os.environ.get("KFE_SEEK_W_R", 90)),
     "seek_w_cost": float(os.environ.get("KFE_SEEK_W_COST", 0.7)),
     "scan360": int(os.environ.get("KFE_SCAN360", 0)),
@@ -437,6 +438,8 @@ class Bot:
                 if not m["_los"]:
                     s += 120
                 s += m["hp"] * PARAMS["tgt_hp"]
+                if PARAMS["tgt_laser"] and "laser" in (m.get("weapons") or []):
+                    s -= PARAMS["tgt_laser"] * (2.0 if m.get("charging") else 1.0)
                 if m["_threat"]:
                     s -= 80 if m["_los"] else 40
                 if PARAMS["rear_switch"] and self.rear_by and t - self.rear_by[0] < 1.5 \
