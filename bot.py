@@ -44,6 +44,7 @@ PARAMS = {
     "engage": float(os.environ.get("KFE_ENGAGE", 120)),
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
     "chase_hp": float(os.environ.get("KFE_CHASE_HP", 0.4)),
+    "group": int(os.environ.get("KFE_GROUP", 0)),
     "farm_enemy_d": float(os.environ.get("KFE_FARM_ENEMY_D", 1e9)),
     "sticky": float(os.environ.get("KFE_STICKY", 0)),
     "pos": int(os.environ.get("KFE_POS", 0)),
@@ -580,6 +581,15 @@ class Bot:
                 self.strafe_until = t + self.rng.uniform(PARAMS["strafe_lo"], PARAMS["strafe_hi"])
             px, py = -uy * self.strafe, ux * self.strafe
             mx, my = ux * radial + px * 0.9, uy * radial + py * 0.9
+            if PARAMS["group"]:
+                grp = [m for m in enemies if m["_d"] < 120 and (m["_los"] or m["_threat"])]
+                if len(grp) >= 2:
+                    cx_ = sum(m["pos"][0] for m in grp) / len(grp) - x
+                    cy_ = sum(m["pos"][1] for m in grp) / len(grp) - y
+                    cn_ = math.hypot(cx_, cy_) or 1
+                    # back away from the group's centroid so every attacker stays in the front arc
+                    mx, my = -cx_ / cn_ + px * 0.6, -cy_ / cn_ + py * 0.6
+                    boost = me["energy"] > 30
             if PARAMS["pos"]:
                 if self.fight_spot is None or t - self.fight_spot_t > 0.5:
                     self.fight_spot = self.pick_fight_spot(target, enemies, obs, lo, hi)
