@@ -14,7 +14,7 @@ sys.path.insert(0, HERE)
 import bot as kfe  # noqa: E402
 
 GIDDY = os.environ.get("KFE_GIDDY_BIN") or os.path.join(HERE, "vendor", "giddy", "giddy")
-GIDDY_SALT = int(os.environ.get("KFE_GIDDY_SALT", 0))   # offsets the driver's RNG seed
+GIDDY_SALT = int(os.environ.get("KFE_GIDDY_SALT", 1))   # offsets the driver's RNG seed
 FFA_DRIVER = os.environ.get("KFE_FFA_DRIVER", "giddy")   # "giddy" or "kfe"
 DEADLINE = float(os.environ.get("KFE_RELAY_MS", 38)) / 1000.0
 NAME = "KentuckyFriedEvan"
