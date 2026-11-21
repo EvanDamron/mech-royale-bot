@@ -15,6 +15,7 @@ import mechfight as mf  # noqa: E402
 from worldmap import World  # noqa: E402
 
 TAU = 2 * math.pi
+DEBUG = bool(int(os.environ.get("KFE_DEBUG", 0)))
 
 UPGRADE_PRIO = [
     "armor", "plating", "nanites", "laser_damage", "laser_charge", "gun_damage", "gun_rate",
@@ -33,6 +34,8 @@ PARAMS = {
     "hide_reload": int(os.environ.get("KFE_HIDE", 1)),
     "chase": int(os.environ.get("KFE_CHASE", 1)),
     "engage": float(os.environ.get("KFE_ENGAGE", 120)),
+    "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
+    "unseen": int(os.environ.get("KFE_UNSEEN", 1)),
 }
 
 
@@ -75,6 +78,7 @@ class Bot:
         self.sound_look = None
         self.jump_next = False
         self.slow_ticks = 0
+        self.last_dmg = None
 
     # ------------------------------------------------------------------ helpers
     def zone_now(self, z, t):
@@ -236,6 +240,8 @@ class Bot:
                 if e.get("by") is not None:
                     self.last_hurt = t
                     self.threats[e["by"]] = (t, e.get("bearing"))
+                    if e.get("bearing") is not None and e.get("weapon") != "npc":
+                        self.last_dmg = (t, e["bearing"], e["by"])
                 elif e.get("weapon") != "zone":
                     self.last_hurt = t
             elif et == "hit":
@@ -298,7 +304,7 @@ class Bot:
                     s += 120
                 s += m["hp"] * 0.04
                 if m["_threat"]:
-                    s -= 40
+                    s -= 80 if m["_los"] else 40
                 return s
             target = min(cand, key=score)
 
@@ -502,7 +508,7 @@ class Bot:
         laser_i = slot.get("laser")
         light_i = slot.get("lightning")
         shoot_ok = not self.retreating or (target is not None and target["hp"] < 250) or \
-            (target is not None and target["_d"] < 25)
+            (target is not None and target["_d"] < 25) or (PARAMS["ret_fire"] and t - self.last_hurt < 2.0)
         if target is not None and not engaged:
             shoot_ok = False
         tgt_obj = None
@@ -567,6 +573,16 @@ class Bot:
                 hold_max = full + self.cfg["weapons"]["laser"].get("hold_s", 2)
                 fire[laser_i] = laser["charge"] < hold_max - 0.2
 
+        hurt_unseen = None
+        if PARAMS["unseen"] and self.last_dmg and t - self.last_dmg[0] < 2.0:
+            seen_ids = {m["id"] for m in enemies if m["_los"]}
+            if self.last_dmg[2] not in seen_ids:
+                hurt_unseen = self.last_dmg[1]
+        if hurt_unseen is not None and (target is None or not target["_los"]):
+            aim = [hurt_unseen, 0.0]
+            fire = [False, False]
+            if laser is not None and laser.get("charge", 0) > 0:
+                fire[laser_i] = True
         if aim is None:
             if face is not None:
                 aim = [face[0], 0.0]
@@ -603,6 +619,13 @@ class Bot:
         if dt > 30:
             mf.log(f"slow act {dt:.1f} ms at t={t}")
         mf.draw.label(f"{mode} hp{me['hp']:.0f} {dt:.0f}ms")
+        if DEBUG and obs["tick"] % 4 == 0:
+            tinfo = ""
+            if target is not None:
+                tinfo = (f"tgt {target['id']} d{target['_d']:.0f} los{int(target['_los'])} thr{int(target['_threat'])} "
+                         f"eng{int(engaged)} aimerr{abs(wrap(self.aim[0] - aim[0])):.3f}")
+            mf.log(f"t{t:.1f} {mode} hp{me['hp']:.0f} fire{fire} ok{int(shoot_ok)} ret{int(self.retreating)} "
+                   f"ammo{gun and gun.get('ammo')} rl{gun and gun.get('reload')} {tinfo} n_en{len(enemies)}")
         return act
 
 
