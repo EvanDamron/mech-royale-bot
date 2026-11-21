@@ -35,6 +35,11 @@ PARAMS = {
     "chase": int(os.environ.get("KFE_CHASE", 1)),
     "engage": float(os.environ.get("KFE_ENGAGE", 120)),
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
+    "loot_kill": int(os.environ.get("KFE_LOOT_KILL", 1)),
+    "farm_hp": float(os.environ.get("KFE_FARM_HP", 0.85)),
+    "fight_boost": float(os.environ.get("KFE_FIGHT_BOOST", 0)),
+    "strafe_lo": float(os.environ.get("KFE_STRAFE_LO", 0.5)),
+    "strafe_hi": float(os.environ.get("KFE_STRAFE_HI", 1.4)),
     "unseen": int(os.environ.get("KFE_UNSEEN", 1)),
 }
 
@@ -79,6 +84,8 @@ class Bot:
         self.jump_next = False
         self.slow_ticks = 0
         self.last_dmg = None
+        self.enemy_pos = {}
+        self.loot_spots = []  # (t, (x, y))
 
     # ------------------------------------------------------------------ helpers
     def zone_now(self, z, t):
@@ -246,6 +253,10 @@ class Bot:
                     self.last_hurt = t
             elif et == "hit":
                 self.last_dealt = t
+            elif et == "kill" and PARAMS["loot_kill"]:
+                p = self.enemy_pos.get(e.get("target"))
+                if p is not None:
+                    self.loot_spots.append((t, p))
         for k in [k for k, v in self.threats.items() if t - v[0] > 8]:
             del self.threats[k]
 
@@ -293,6 +304,9 @@ class Bot:
             by = math.atan2(y - m["pos"][1], x - m["pos"][0])
             m["_aimed"] = abs(wrap(m["aim"][0] - by)) < 0.15
         recent_hurt = t - self.last_hurt < 4
+        for m in enemies:
+            self.enemy_pos[m["id"]] = (m["pos"][0], m["pos"][1], m["pos"][2])
+        self.loot_spots = [(lt, lp) for lt, lp in self.loot_spots if t - lt < 20 and d2(lp, (x, y)) > 2.5]
 
         # target choice
         target = None
@@ -392,7 +406,7 @@ class Bot:
                 radial = -1.0
             if t > self.strafe_until:
                 self.strafe = -self.strafe if self.rng.random() < 0.7 else self.strafe
-                self.strafe_until = t + self.rng.uniform(0.5, 1.4)
+                self.strafe_until = t + self.rng.uniform(PARAMS["strafe_lo"], PARAMS["strafe_hi"])
             px, py = -uy * self.strafe, ux * self.strafe
             mx, my = ux * radial + px * 0.9, uy * radial + py * 0.9
             # do not strafe out of the zone
@@ -404,6 +418,8 @@ class Bot:
             goal = (x + mx * 12, y + my * 12)
             strafe_ok = True
             boost = me["energy"] > 55 and any(m.get("charging") and m["_aimed"] for m in enemies)
+            if PARAMS["fight_boost"] and me["energy"] > PARAMS["fight_boost"]:
+                boost = True
         if goal is None and PARAMS["chase"] and target is not None and not target["_los"] and not self.retreating \
                 and target["hp"] < target["max_hp"] * 0.4 and hp_frac > 0.6 and target["_d"] < 90 \
                 and self.safe_spot(target["pos"], obs):
@@ -425,7 +441,11 @@ class Bot:
                 dd = d2(c["pos"], (x, y))
                 if dd < 80 and self.safe_spot(c["pos"], obs):
                     cands.append((dd * 0.6, "cube", c["pos"], None))
-            if not enemies and hp_frac > 0.5:
+            for lt, lp in self.loot_spots:
+                dd = d2(lp, (x, y))
+                if dd < 120 and self.safe_spot(lp, obs) and not any(m["_los"] and m["_d"] < 100 for m in enemies):
+                    cands.append((dd * 0.4, "loot", lp, None))
+            if not enemies and hp_frac > PARAMS["farm_hp"]:
                 for c in obs["crates"]:
                     cz = c["pos"][2]
                     if cz - W.terrain(c["pos"][0], c["pos"][1]) > 3 and abs(cz - z) > 3:
@@ -435,7 +455,7 @@ class Bot:
                         cands.append((dd + 10, "crate", c["pos"], c))
                 for n in npcs:
                     dd = d2(n["pos"], (x, y))
-                    if dd < 70 and hp_frac > 0.6 and self.safe_spot(n["pos"], obs):
+                    if dd < 70 and self.safe_spot(n["pos"], obs):
                         cands.append((dd + 15, "npc", n["pos"], n))
             if cands:
                 cands.sort(key=lambda c: c[0])
