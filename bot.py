@@ -23,6 +23,12 @@ UPGRADE_PRIO = [
     "capacitor", "jets", "gun_velocity", "sensors", "lightning_chain", "laser_pierce",
     "mortar_reload", "mortar_splash", "mortar_velocity",
 ]
+if os.environ.get("KFE_UPG") == "dmg":
+    UPGRADE_PRIO = [
+        "gun_damage", "laser_damage", "gun_rate", "lightning_efficiency", "laser_charge", "armor", "plating",
+        "gun_mag", "lightning_range", "nanites", "gyros", "lightning_chain", "gun_velocity", "servos", "reactor",
+        "capacitor", "jets", "sensors", "laser_pierce", "mortar_reload", "mortar_splash", "mortar_velocity",
+    ]
 WEAPON_PREF = {"laser": 3, "lightning": 2, "mortar": -1, "gun": -2}
 if os.environ.get("KFE_PREF") == "lightning":
     WEAPON_PREF = {"laser": 2, "lightning": 3, "mortar": -1, "gun": -2}
@@ -37,6 +43,8 @@ PARAMS = {
     "chase": int(os.environ.get("KFE_CHASE", 1)),
     "engage": float(os.environ.get("KFE_ENGAGE", 120)),
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
+    "chase_hp": float(os.environ.get("KFE_CHASE_HP", 0.4)),
+    "chase_d": float(os.environ.get("KFE_CHASE_D", 90)),
     "perch": int(os.environ.get("KFE_PERCH", 0)),
     "perch_t": float(os.environ.get("KFE_PERCH_T", 0)),
     "perch_margin": float(os.environ.get("KFE_PERCH_MARGIN", 12)),
@@ -533,7 +541,8 @@ class Bot:
             if PARAMS["fight_boost"] and me["energy"] > PARAMS["fight_boost"]:
                 boost = True
         if goal is None and PARAMS["chase"] and target is not None and not target["_los"] and not self.retreating \
-                and target["hp"] < target["max_hp"] * 0.4 and hp_frac > 0.6 and target["_d"] < 90 \
+                and target["hp"] < target["max_hp"] * PARAMS["chase_hp"] and hp_frac > 0.6 \
+                and target["_d"] < PARAMS["chase_d"] \
                 and self.safe_spot(target["pos"], obs):
             goal = (target["pos"][0], target["pos"][1])
             mode = "chase"
