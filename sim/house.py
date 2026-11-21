@@ -21,10 +21,16 @@ LEVELS = {
 }
 
 
+import os
+HOUSE_MULT = float(os.environ.get("SIM_HOUSE_MULT", 1.0))
+
+
 class HouseBot:
     def __init__(self, level="medium", ffa=False):
         self.level = level
-        self.p = LEVELS[level]
+        self.p = dict(LEVELS[level])
+        self.p["noise"] *= HOUSE_MULT
+        self.p["react"] *= HOUSE_MULT
         self.name = f"house-{level}"
         self.ffa = ffa
         self.slot = None
