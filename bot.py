@@ -35,6 +35,8 @@ PARAMS = {
     "chase": int(os.environ.get("KFE_CHASE", 1)),
     "engage": float(os.environ.get("KFE_ENGAGE", 120)),
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
+    "evade": int(os.environ.get("KFE_EVADE", 0)),
+    "evade_mem": float(os.environ.get("KFE_EVADE_MEM", 3.0)),
     "loot_kill": int(os.environ.get("KFE_LOOT_KILL", 1)),
     "farm_hp": float(os.environ.get("KFE_FARM_HP", 0.85)),
     "fight_boost": float(os.environ.get("KFE_FIGHT_BOOST", 0)),
@@ -324,6 +326,9 @@ class Bot:
 
         engaged = target is not None and (target["_d"] <= PARAMS["engage"] or target["_threat"] or recent_hurt
                                           or target["hp"] <= target["max_hp"] * 0.35)
+        if PARAMS["evade"] and target is not None:
+            engaged = (target["_d"] < 35 or (t - self.last_hurt < PARAMS["evade_mem"])
+                       or (target["hp"] <= target["max_hp"] * 0.3 and target["_d"] < 90))
 
         # ---- retreat state
         exposed = [m for m in enemies if m["_los"] and m["_d"] < 160]
@@ -387,6 +392,15 @@ class Bot:
             if self.cover:
                 goal = self.cover
                 mode = "hide"
+        if goal is None and PARAMS["evade"] and not engaged and not self.retreating:
+            seen = [m for m in enemies if m["_d"] < 170 and m["_los"]]
+            if seen:
+                if self.cover is None or t - self.cover_t > 1.0:
+                    self.cover = self.find_cover(seen, obs)
+                    self.cover_t = t
+                if self.cover:
+                    goal = self.cover
+                    mode = "evade"
         if goal is None and engaged and target["_los"] and not self.retreating:
             mode = "fight"
             # range band
