@@ -44,7 +44,7 @@ PARAMS = {
     "engage": float(os.environ.get("KFE_ENGAGE", 120)),
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
     "chase_hp": float(os.environ.get("KFE_CHASE_HP", 0.4)),
-    "group": int(os.environ.get("KFE_GROUP", 0)),
+    "group": int(os.environ.get("KFE_GROUP", 1)),
     "farm_enemy_d": float(os.environ.get("KFE_FARM_ENEMY_D", 1e9)),
     "sticky": float(os.environ.get("KFE_STICKY", 0)),
     "pos": int(os.environ.get("KFE_POS", 0)),
