@@ -37,7 +37,7 @@ PARAMS = {
     "chase": int(os.environ.get("KFE_CHASE", 1)),
     "engage": float(os.environ.get("KFE_ENGAGE", 120)),
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
-    "perch": int(os.environ.get("KFE_PERCH", 0)),
+    "perch": int(os.environ.get("KFE_PERCH", 1)),
     "perch_t": float(os.environ.get("KFE_PERCH_T", 0)),
     "perch_margin": float(os.environ.get("KFE_PERCH_MARGIN", 12)),
     "farm_r_early": float(os.environ.get("KFE_FARM_R", 70)),
