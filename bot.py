@@ -44,6 +44,7 @@ PARAMS = {
     "engage": float(os.environ.get("KFE_ENGAGE", 120)),
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
     "chase_hp": float(os.environ.get("KFE_CHASE_HP", 0.4)),
+    "sticky": float(os.environ.get("KFE_STICKY", 0)),
     "pos": int(os.environ.get("KFE_POS", 0)),
     "tgt_hp": float(os.environ.get("KFE_TGT_HP", 0.04)),
     "chase_d": float(os.environ.get("KFE_CHASE_D", 90)),
@@ -114,6 +115,8 @@ class Bot:
         self.climbing = False
         self.climb_since = None
         self.fight_spot = None
+        self.cur_target = None
+        self.cur_target_t = -99
         self.fight_spot_t = -99
         self.loot_spots = []  # (t, (x, y))
 
@@ -416,6 +419,13 @@ class Bot:
                     s -= 80 if m["_los"] else 40
                 return s
             target = min(cand, key=score)
+            if PARAMS["sticky"] and self.cur_target is not None and t - self.cur_target_t < 3.0:
+                prev = next((m for m in cand if m["id"] == self.cur_target), None)
+                if prev is not None and prev is not target and prev["_los"] \
+                        and score(prev) < score(target) + PARAMS["sticky"]:
+                    target = prev
+            self.cur_target = target["id"]
+            self.cur_target_t = t
 
         engaged = target is not None and (target["_d"] <= PARAMS["engage"] or target["_threat"] or recent_hurt
                                           or target["hp"] <= target["max_hp"] * 0.35)
