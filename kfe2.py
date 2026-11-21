@@ -18,7 +18,7 @@ from worldmap import World  # noqa: E402
 TAU = 2 * math.pi
 LAT = 0.075          # our action lands about this long after the observation
 DEBUG = bool(int(os.environ.get("KFE_DEBUG", 0)))
-PARTIAL_COVER = bool(int(os.environ.get("K2_PARTIAL", 1)))  # no full cover: go where the fewest threats can see us
+PARTIAL_COVER = bool(int(os.environ.get("K2_PARTIAL", 0)))  # fewest-watchers cover fallback (league: hurts, off)
 WITHDRAW = bool(int(os.environ.get("K2_WITHDRAW", 1)))       # swamped, no cover, no target: back away instead of standing
 USE_DROPS = bool(int(os.environ.get("K2_DROPS", 0)))       # go for supply drops (league: costs placement, off)
 OPENING_HUNT = bool(int(os.environ.get("K2_OPENING", 0)))   # walk far for a laser in the first 20 s
