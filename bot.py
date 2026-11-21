@@ -44,6 +44,7 @@ PARAMS = {
     "engage": float(os.environ.get("KFE_ENGAGE", 120)),
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
     "chase_hp": float(os.environ.get("KFE_CHASE_HP", 0.4)),
+    "farm_enemy_d": float(os.environ.get("KFE_FARM_ENEMY_D", 1e9)),
     "sticky": float(os.environ.get("KFE_STICKY", 0)),
     "pos": int(os.environ.get("KFE_POS", 0)),
     "tgt_hp": float(os.environ.get("KFE_TGT_HP", 0.04)),
@@ -629,7 +630,8 @@ class Bot:
                 if dd < 120 and self.safe_spot(lp, obs) and not any(m["_los"] and m["_d"] < 100 for m in enemies):
                     cands.append((dd * 0.4, "loot", lp, None))
             farm_r = PARAMS["farm_r_early"] if t < PARAMS["farm_t"] else 70
-            if not enemies and hp_frac > PARAMS["farm_hp"]:
+            far_ok = all(m["_d"] > PARAMS["farm_enemy_d"] for m in enemies)
+            if far_ok and hp_frac > PARAMS["farm_hp"]:
                 for c in obs["crates"]:
                     cz = c["pos"][2]
                     if cz - W.terrain(c["pos"][0], c["pos"][1]) > 3 and abs(cz - z) > 3:
