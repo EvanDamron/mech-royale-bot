@@ -1,0 +1,27 @@
+# === sync policy: data and artifacts never reach GitHub ===
+data/
+datasets/
+outputs/
+output/
+results/
+checkpoints/
+ckpts/
+runs/*
+!runs/*.sh
+!runs/*.py
+wandb/
+logs/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.npz
+*.h5
+*.hdf5
+__pycache__/
+.venv/
+.DS_Store
+.idea/
+.claude/settings.local.json
+.env
+*.pyc
