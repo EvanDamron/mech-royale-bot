@@ -46,7 +46,8 @@ PARAMS = {
     "chase_hp": float(os.environ.get("KFE_CHASE_HP", 0.4)),
     "group": int(os.environ.get("KFE_GROUP", 1)),
     "heal_hp": float(os.environ.get("KFE_HEAL_HP", 0)),
-    "group_r": float(os.environ.get("KFE_GROUP_R", 120)),
+    "group_r": float(os.environ.get("KFE_GROUP_R", 200)),
+    "group_ffa": int(os.environ.get("KFE_GROUP_FFA", 0)),
     "rear_switch": float(os.environ.get("KFE_REAR_SWITCH", 0)),
     "farm_enemy_d": float(os.environ.get("KFE_FARM_ENEMY_D", 1e9)),
     "sticky": float(os.environ.get("KFE_STICKY", 0)),
@@ -121,6 +122,8 @@ class Bot:
         self.climb_since = None
         self.fight_spot = None
         self.cur_target = None
+        self.ffa = False
+        self.my_kills = 0
         self.rear_by = None
         self.cur_target_t = -99
         self.fight_spot_t = -99
@@ -358,10 +361,16 @@ class Bot:
                     self.last_hurt = t
             elif et == "hit":
                 self.last_dealt = t
-            elif et == "kill" and PARAMS["loot_kill"]:
+            elif et == "kill":
+                self.my_kills += 1
+            if et == "kill" and PARAMS["loot_kill"]:
                 p = self.enemy_pos.get(e.get("target"))
                 if p is not None:
                     self.loot_spots.append((t, p))
+        # free-for-all detection: in practice the house squad only dies to us early on
+        if not self.ffa and t < 200 and (16 - obs.get("alive", 16)) - self.my_kills >= 2:
+            self.ffa = True
+            mf.log(f"FFA detected at t={t}")
         for k in [k for k, v in self.threats.items() if t - v[0] > 8]:
             del self.threats[k]
 
@@ -590,7 +599,7 @@ class Bot:
                 self.strafe_until = t + self.rng.uniform(PARAMS["strafe_lo"], PARAMS["strafe_hi"])
             px, py = -uy * self.strafe, ux * self.strafe
             mx, my = ux * radial + px * 0.9, uy * radial + py * 0.9
-            if PARAMS["group"]:
+            if PARAMS["group"] and (not self.ffa or PARAMS["group_ffa"]):
                 grp = [m for m in enemies if m["_d"] < PARAMS["group_r"] and (m["_los"] or m["_threat"])]
                 if len(grp) >= 2:
                     cx_ = sum(m["pos"][0] for m in grp) / len(grp) - x
