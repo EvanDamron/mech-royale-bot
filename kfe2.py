@@ -18,6 +18,7 @@ from worldmap import World  # noqa: E402
 TAU = 2 * math.pi
 LAT = 0.075          # our action lands about this long after the observation
 DEBUG = bool(int(os.environ.get("KFE_DEBUG", 0)))
+PARTIAL_COVER = bool(int(os.environ.get("K2_PARTIAL", 0)))  # no full cover: go where the fewest threats can see us
 USE_DROPS = bool(int(os.environ.get("K2_DROPS", 0)))       # go for supply drops (giddy ships with this off)
 OPENING_HUNT = bool(int(os.environ.get("K2_OPENING", 0)))   # walk far for a laser in the first 20 s (giddy does not)
 
@@ -318,13 +319,20 @@ class Bot:
         W = self.W
         h = self.height_of(me.get("cubes", 0))
 
-        def hidden(cx, cy):
+        def seen_by(cx, cy, limit):
+            """Number of threats with a line on (cx, cy), stopping once it reaches limit."""
             cz = self.walk_z(cx, cy)
+            n = 0
             for t in threats:
                 e = self.eye(t)
                 if W.los(e, (cx, cy, cz + h)) or W.los(e, (cx, cy, cz + h * 0.5)):
-                    return False
-            return True
+                    n += 1
+                    if n >= limit:
+                        return n
+            return n
+
+        def hidden(cx, cy):
+            return seen_by(cx, cy, 1) == 0
         if self.cover_goal is not None and self.now - self.cover_at < 0.4:
             return self.travel_cover(me)
         self.cover_at = self.now
@@ -339,6 +347,7 @@ class Bot:
         seen_c = {start: 0}
         queue = [start]
         best = None
+        partial = None
         checked = 0
         h0 = 0
         t_end = time.perf_counter() + 0.006
@@ -352,12 +361,20 @@ class Bot:
             if steps > 0:
                 cx, cy = W.nav_center(cj, ci)
                 checked += 1
-                if hidden(cx, cy):
+                lim = len(threats) if best is None and PARTIAL_COVER else 1
+                if partial is not None:
+                    lim = min(lim, partial[0])
+                nv = seen_by(cx, cy, max(lim, 1))
+                near = min(hyp(t.pos[0] - cx, t.pos[1] - cy) for t in threats)
+                if nv == 0:
                     sc = steps * 8 + self.zone_penalty(z, cx, cy, self.now)
-                    near = min(hyp(t.pos[0] - cx, t.pos[1] - cy) for t in threats)
                     sc -= min(near, 80) * 0.25
                     if best is None or sc < best[0]:
                         best = (sc, cx, cy)
+                elif PARTIAL_COVER and nv < len(threats):
+                    sc = steps * 8 + self.zone_penalty(z, cx, cy, self.now) - min(near, 120) * 0.5
+                    if partial is None or nv < partial[0] or (nv == partial[0] and sc < partial[1]):
+                        partial = (nv, sc, cx, cy)
             for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
                 ni, nj = ci + di, cj + dj
                 if ni < 0 or nj < 0 or ni >= gnx or nj >= gny:
@@ -369,6 +386,8 @@ class Bot:
                     continue
                 seen_c[n] = steps + 1
                 queue.append(n)
+        if best is None and partial is not None:
+            best = (partial[1], partial[2], partial[3])
         if best is None:
             self.cover_goal = None
             return None
