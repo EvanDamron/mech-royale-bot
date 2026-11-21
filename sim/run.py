@@ -63,6 +63,7 @@ def main():
     bots = parse_bots(a.bot)
     jobs = [(a.mode, bots, a.seed + i, a.copies) for i in range(a.n)]
     scores = {}
+    extra = {}
     allres = []
     with mp.Pool(a.j) as pool:
         for r in pool.imap_unordered(one, jobs):
@@ -73,12 +74,15 @@ def main():
                 if a.mode in ("practice", "solo") and nm.startswith("house"):
                     continue
                 scores.setdefault(nm, []).append(16 - e["place"])
+                extra.setdefault(nm, []).append((e["kills"], e["cubes"], e["death_t"]))
                 line.append(f"{nm}:p{e['place']} k{e['kills']} c{e['cubes']} d{e['death_t']:.0f}s late{e['late']}")
             print(f"seed {r['seed']} ({r['secs']:.0f}s, end {r['end_t']:.0f}s): " + " | ".join(line[:6]), flush=True)
     print("=== mean (16 - place) ===")
     for nm, v in sorted(scores.items(), key=lambda kv: -statistics.mean(kv[1])):
         se = statistics.stdev(v) / len(v) ** 0.5 if len(v) > 1 else 0
-        print(f"{nm:30s} {statistics.mean(v):6.2f} ± {se:4.2f}  (n={len(v)})")
+        ex = extra[nm]
+        print(f"{nm:30s} {statistics.mean(v):6.2f} ± {se:4.2f}  (n={len(v)})  kills {statistics.mean(k for k, c, d in ex):.2f}"
+              f"  cubes {statistics.mean(c for k, c, d in ex):.1f}  death_t median {statistics.median(d for k, c, d in ex):.0f}s")
     if a.out:
         with open(a.out, "w") as f:
             json.dump(allres, f)
