@@ -44,6 +44,7 @@ PARAMS = {
     "engage": float(os.environ.get("KFE_ENGAGE", 120)),
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
     "chase_hp": float(os.environ.get("KFE_CHASE_HP", 0.4)),
+    "pos": int(os.environ.get("KFE_POS", 0)),
     "tgt_hp": float(os.environ.get("KFE_TGT_HP", 0.04)),
     "chase_d": float(os.environ.get("KFE_CHASE_D", 90)),
     "perch": int(os.environ.get("KFE_PERCH", 0)),
@@ -112,6 +113,8 @@ class Bot:
         self.perch_t = -99
         self.climbing = False
         self.climb_since = None
+        self.fight_spot = None
+        self.fight_spot_t = -99
         self.loot_spots = []  # (t, (x, y))
 
     # ------------------------------------------------------------------ helpers
@@ -271,6 +274,43 @@ class Bot:
         if cost[k] > 1e8:
             return None
         return (float(px[k]), float(py[k]), float(W.perch_h[k]))
+
+    def pick_fight_spot(self, target, enemies, obs, lo, hi):
+        """Nearby spot with a shot at the target, few other enemies seeing it, and a wall close by."""
+        W = self.W
+        x, y, z = self.pos
+        tp = target["pos"]
+        tc = (tp[0], tp[1], tp[2] + target["_h"] * 0.5)
+        others = [m for m in enemies if m is not target and m["_d"] < 200]
+        best = None
+        cands = [(x, y)]
+        for r in (6.0, 12.0):
+            for k in range(12):
+                a = k * TAU / 12
+                cands.append((x + math.cos(a) * r, y + math.sin(a) * r))
+        for cx, cy in cands:
+            if (cx, cy) != (x, y):
+                if not W.free_at(cx, cy) or not W.walk_clear((x, y), (cx, cy)):
+                    continue
+                if not self.safe_spot((cx, cy), obs, 4):
+                    continue
+            cz = W.surface(cx, cy)
+            if not W.los((cx, cy, cz + self.muzzle_h), tc):
+                continue
+            expo = 0
+            for m in others:
+                mp = m["pos"]
+                if W.los((mp[0], mp[1], mp[2] + 8), (cx, cy, cz + 4.5)):
+                    expo += 1
+            dt_ = math.hypot(tc[0] - cx, tc[1] - cy)
+            rp = max(0.0, lo - dt_, dt_ - hi) / 15.0
+            # wall within ~5 m (something to duck behind)
+            jc, ic = W.cell(cx, cy)
+            near = W.wall[max(jc - 6, 0):jc + 7, max(ic - 6, 0):ic + 7].any()
+            score = -2.0 * expo - rp + (0.8 if near else 0.0) - math.hypot(cx - x, cy - y) / 15.0
+            if best is None or score > best[0]:
+                best = (score, (cx, cy))
+        return best[1] if best else None
 
     # ------------------------------------------------------------------ main
     def act(self, obs):
@@ -529,6 +569,17 @@ class Bot:
                 self.strafe_until = t + self.rng.uniform(PARAMS["strafe_lo"], PARAMS["strafe_hi"])
             px, py = -uy * self.strafe, ux * self.strafe
             mx, my = ux * radial + px * 0.9, uy * radial + py * 0.9
+            if PARAMS["pos"]:
+                if self.fight_spot is None or t - self.fight_spot_t > 0.5:
+                    self.fight_spot = self.pick_fight_spot(target, enemies, obs, lo, hi)
+                    self.fight_spot_t = t
+                if self.fight_spot is not None:
+                    fx, fy = self.fight_spot[0] - x, self.fight_spot[1] - y
+                    fd = math.hypot(fx, fy)
+                    if fd > 2.0:
+                        mx, my = fx / fd + px * 0.35, fy / fd + py * 0.35
+                    else:
+                        mx, my = px * 0.6, py * 0.6
             kite_boost = boost
             # do not strafe out of the zone
             gx, gy = x + mx * 10, y + my * 10
