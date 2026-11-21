@@ -154,6 +154,7 @@ class Match:
         for k, (name, argv) in enumerate(bots):
             s = slots[k]
             self.mechs[s].name = name
+            self.mechs[s].label = name
             self.ext[s] = argv
         hb = house or []
         for k, s in enumerate(slots[len(bots):]):
@@ -286,7 +287,7 @@ class Match:
             line = p.stdout.readline()
             try:
                 msg = json.loads(line)
-                if msg.get("name"):
+                if msg.get("name") and not getattr(self.mechs[s], "label", None):
                     self.mechs[s].name = msg["name"][:32]
             except ValueError:
                 pass
