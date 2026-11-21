@@ -257,7 +257,8 @@ class Bot:
             d = hyp(c["pos"][0] - x, c["pos"][1] - y)
             if d < 40 and abs(c["pos"][2] - me["pos"][2]) < 4 and (cube is None or d < cube[0]):
                 cube = (d, c["pos"])
-        others = [e for e in seen if e is not tg and hyp(e.pos[0] - x, e.pos[1] - y) < 170]
+        others = sorted((e for e in seen if e is not tg and hyp(e.pos[0] - x, e.pos[1] - y) < 170),
+                        key=lambda e: hyp(e.pos[0] - x, e.pos[1] - y))[:3]
         best = -1e18
         mx = my = 0.0
         blocked_side = False
@@ -338,8 +339,8 @@ class Bot:
         best = None
         checked = 0
         h0 = 0
-        t_end = time.perf_counter() + 0.010
-        while h0 < len(queue) and checked < 120 and time.perf_counter() < t_end:
+        t_end = time.perf_counter() + 0.006
+        while h0 < len(queue) and checked < 80 and time.perf_counter() < t_end:
             c = queue[h0]
             h0 += 1
             steps = seen_c[c]
