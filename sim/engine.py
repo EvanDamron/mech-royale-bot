@@ -17,7 +17,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 from worldmap import World  # noqa: E402
 
-KIT = os.path.abspath(os.path.join(HERE, "..", "..", "starter", "mechfight-kit"))
+KIT = os.environ.get("MECH_KIT") or os.path.abspath(os.path.join(HERE, "..", "..", "starter", "mechfight-kit"))
 MAP_DIR = os.path.join(KIT, "arena")
 TAU = 2 * math.pi
 
