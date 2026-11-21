@@ -25,3 +25,4 @@ python sim/run.py ffa --bot "A=python -u bot.py" --bot "B=python -u other.py" -n
 Copyright (c) 2026 giddygiddyboy). Source: `justnau/giddygiddyboy-mech-royale` at commit
 `e19e3c8d45d980df35c2fa5318353aaeb7c515bd`, as bundled in `charliescull/mech-royale-bot` (`drivers/giddy/`).
 The Dockerfile builds it in a pinned `golang:1.26.1-bookworm` stage. `Dockerfile.python` runs our own Python bot alone.
+(Change on this branch: practice laser hold range 120 m -> 160 m in `squadParams`.)
