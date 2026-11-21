@@ -18,6 +18,7 @@ GIDDY_SALT = int(os.environ.get("KFE_GIDDY_SALT", 0))   # offsets the driver's R
 FFA_DRIVER = os.environ.get("KFE_FFA_DRIVER", "giddy")   # "giddy" or "kfe"
 DEADLINE = float(os.environ.get("KFE_RELAY_MS", 38)) / 1000.0
 NAME = "KentuckyFriedEvan"
+WARM = int(os.environ.get("KFE_WARM", 0))   # >0: also step our bot every WARM ticks while the driver plays
 
 
 def log(*a):
@@ -161,7 +162,8 @@ def main():
             action.pop("debug", None)
             last = action
             send(action)
-            run_mine()
+            if WARM and tick % WARM == 0:
+                run_mine()
             continue
         mine = run_mine()
         stats["kfe"] += 1
