@@ -74,15 +74,16 @@ def main():
                 if a.mode in ("practice", "solo") and nm.startswith("house"):
                     continue
                 scores.setdefault(nm, []).append(16 - e["place"])
-                extra.setdefault(nm, []).append((e["kills"], e["cubes"], e["death_t"]))
+                extra.setdefault(nm, []).append((e["kills"], e["cubes"], e["death_t"], e.get("drops", 0)))
                 line.append(f"{nm}:p{e['place']} k{e['kills']} c{e['cubes']} d{e['death_t']:.0f}s late{e['late']}")
             print(f"seed {r['seed']} ({r['secs']:.0f}s, end {r['end_t']:.0f}s): " + " | ".join(line[:6]), flush=True)
     print("=== mean (16 - place) ===")
     for nm, v in sorted(scores.items(), key=lambda kv: -statistics.mean(kv[1])):
         se = statistics.stdev(v) / len(v) ** 0.5 if len(v) > 1 else 0
         ex = extra[nm]
-        print(f"{nm:30s} {statistics.mean(v):6.2f} ± {se:4.2f}  (n={len(v)})  kills {statistics.mean(k for k, c, d in ex):.2f}"
-              f"  cubes {statistics.mean(c for k, c, d in ex):.1f}  death_t median {statistics.median(d for k, c, d in ex):.0f}s")
+        print(f"{nm:30s} {statistics.mean(v):6.2f} ± {se:4.2f}  (n={len(v)})  kills {statistics.mean(e[0] for e in ex):.2f}"
+              f"  cubes {statistics.mean(e[1] for e in ex):.1f}  drops {statistics.mean(e[3] for e in ex):.2f}"
+              f"  death_t median {statistics.median(e[2] for e in ex):.0f}s")
     if a.out:
         with open(a.out, "w") as f:
             json.dump(allres, f)
