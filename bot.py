@@ -37,6 +37,9 @@ PARAMS = {
     "chase": int(os.environ.get("KFE_CHASE", 1)),
     "engage": float(os.environ.get("KFE_ENGAGE", 120)),
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
+    "perch": int(os.environ.get("KFE_PERCH", 0)),
+    "perch_t": float(os.environ.get("KFE_PERCH_T", 0)),
+    "perch_margin": float(os.environ.get("KFE_PERCH_MARGIN", 12)),
     "farm_r_early": float(os.environ.get("KFE_FARM_R", 70)),
     "farm_t": float(os.environ.get("KFE_FARM_T", 120)),
     "kite": int(os.environ.get("KFE_KITE", 1)),
@@ -74,6 +77,8 @@ class Bot:
         self.rng = random.Random(hello.get("seed", 0))
         t0 = time.time()
         self.W = World(hello["map"]["dir"])
+        import numpy as np
+        self.perch_bad = np.zeros(len(self.W.perch_x), bool)
         mf.log(f"world loaded in {time.time() - t0:.2f}s")
         self.path = None
         self.path_goal = None
@@ -94,6 +99,10 @@ class Bot:
         self.slow_ticks = 0
         self.last_dmg = None
         self.enemy_pos = {}
+        self.perch = None
+        self.perch_t = -99
+        self.climbing = False
+        self.climb_since = None
         self.loot_spots = []  # (t, (x, y))
 
     # ------------------------------------------------------------------ helpers
@@ -230,6 +239,29 @@ class Bot:
             if best and best[2] == len(threats) and r >= radii[min(1, len(radii) - 1)]:
                 break
         return best[1] if best else None
+
+    def pick_perch(self, obs, zc, zr):
+        """Choose a deep roof point inside the current and next zone, near us."""
+        import numpy as np
+        W = self.W
+        z = obs["zone"]
+        nc, nr = z["next_center"], z["next_radius"]
+        px, py = W.perch_x, W.perch_y
+        dn = np.hypot(px - nc[0], py - nc[1])
+        dc = np.hypot(px - zc[0], py - zc[1])
+        margin = PARAMS["perch_margin"] + (10 if z["shrink_end"] - obs["t"] < 20 else 0)
+        ok = (dn < nr - margin) & (dc < zr - margin)
+        if not ok.any():
+            return None
+        dme = np.hypot(px - self.pos[0], py - self.pos[1])
+        cost = dme - W.perch_d * 4 + np.where(ok, 0, 1e9) + np.where(self.perch_bad, 1e9, 0)
+        # prefer staying on the current perch
+        if self.perch is not None:
+            cost -= 40 * (np.hypot(px - self.perch[0], py - self.perch[1]) < 3)
+        k = int(np.argmin(cost))
+        if cost[k] > 1e8:
+            return None
+        return (float(px[k]), float(py[k]), float(W.perch_h[k]))
 
     # ------------------------------------------------------------------ main
     def act(self, obs):
@@ -384,6 +416,56 @@ class Bot:
             goal = home
             mode = "zone"
             boost = (not me["in_zone"]) or need > time_left - 6
+        perch_mode = None
+        if goal is None and PARAMS["perch"] and t >= PARAMS["perch_t"]:
+            if self.perch is None or t - self.perch_t > 2.0:
+                self.perch = self.pick_perch(obs, zc, zr)
+                self.perch_t = t
+            if self.perch is not None:
+                ppx, ppy, pph = self.perch
+                jc, ic = W.cell(x, y)
+                on_roof = z > W.terrain(x, y) + 4 and abs(z - float(W.gtop[jc, ic])) < 1.5
+                dp = d2((x, y), (ppx, ppy))
+                if on_roof and abs(z - pph) < 2.0:
+                    perch_mode = "perched"
+                    goal = (ppx, ppy) if dp > 1.5 else (x, y)
+                    mode = "perch"
+                else:
+                    ux, uy = (ppx - x) / max(dp, 1e-6), (ppy - y) / max(dp, 1e-6)
+                    at_wall = dp < 45 and not W.walk_clear((x, y), (x + ux * 5, y + uy * 5))
+                    if z >= pph - 0.3 and not me["grounded"]:
+                        perch_mode = "glide"
+                        mode = "glide"
+                        goal = (ppx, ppy)
+                    elif self.climbing or at_wall:
+                        need_e = (pph - z) / 10.0 * st.get("jet_drain", 15) + 12
+                        if self.climbing or me["energy"] >= min(need_e, me["max_energy"] - 1) or not me["in_zone"]:
+                            self.climbing = z < pph + 1.0 and (me["energy"] > 1 or not me["grounded"])
+                            perch_mode = "climb"
+                            mode = "climb"
+                            goal = (ppx, ppy)
+                        else:
+                            perch_mode = "wait"
+                            mode = "chargeE"
+                            goal = (x, y)
+                    else:
+                        perch_mode = "approach"
+                        mode = "toperch"
+                        goal = (ppx, ppy)
+        if perch_mode in ("climb", "wait", "glide"):
+            if self.climb_since is None:
+                self.climb_since = t
+            elif t - self.climb_since > 8.0 and self.perch is not None:
+                import numpy as np
+                bad = np.hypot(W.perch_x - self.perch[0], W.perch_y - self.perch[1]) < 12
+                self.perch_bad |= bad
+                self.perch = None
+                self.climb_since = None
+                self.climbing = False
+        else:
+            self.climb_since = None
+        if perch_mode is None:
+            self.climbing = False
         if goal is None and self.retreating and (enemies or recent_hurt):
             threats = [m for m in enemies if m["_d"] < 200] or []
             if threats:
@@ -559,9 +641,26 @@ class Bot:
                 mvx, mvy = self.steer(mvx, mvy, look=4.0)
         moving = abs(mvx) + abs(mvy) > 0.1
 
-        # stuck detection
         jump = False
-        if moving and len(self.hist) >= 10:
+        if perch_mode == "glide":
+            dpx, dpy = goal[0] - x, goal[1] - y
+            dn_ = math.hypot(dpx, dpy) or 1
+            mvx, mvy = dpx / dn_, dpy / dn_
+            boost = False
+            moving = True
+        elif perch_mode == "climb":
+            dpx, dpy = goal[0] - x, goal[1] - y
+            dn_ = math.hypot(dpx, dpy) or 1
+            mvx, mvy = dpx / dn_, dpy / dn_
+            jump = me["grounded"]
+            boost = True
+            moving = True
+        elif perch_mode in ("perched", "wait"):
+            if goal == (x, y):
+                mvx = mvy = 0.0
+                moving = False
+        # stuck detection
+        if moving and len(self.hist) >= 10 and perch_mode != "climb":
             t_old, ox, oy = self.hist[0]
             if t - t_old > 0.8 and math.hypot(x - ox, y - oy) < 1.2 * (t - t_old):
                 if t > self.stuck_until + 1.5:

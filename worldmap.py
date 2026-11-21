@@ -92,6 +92,7 @@ class World:
         self._tc = {}
         self.trees = w.get("trees")
         self._build_nav()
+        self._build_roofs()
 
     # ---------- sampling ----------
     def cell(self, x, y):
@@ -214,6 +215,30 @@ class World:
         self.nav_flat = self.nav_free.ravel().tolist()
         # distance (in 1 m cells) to the nearest wall, rough, for cover search
         self.wall_near = self.wall
+
+    def _build_roofs(self, min_h=6.0, max_h=42.0, min_depth=6):
+        """Roof interior depth (m from a drop or step) and perch candidates on a 4 m lattice."""
+        g, T = self.gtop, self.T
+        h = g - T
+        roof = (h > min_h) & (h < max_h)
+        depth = np.zeros(g.shape, np.int16)
+        cur = roof.copy()
+        for k in range(1, 16):
+            nb = cur.copy()
+            for dj, di in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nb &= np.roll(np.roll(cur, dj, 0), di, 1) & \
+                    (np.abs(np.roll(np.roll(g, dj, 0), di, 1) - g) < 1.5)
+            cur = nb
+            if not cur.any():
+                break
+            depth[cur] = k
+        self.roof_depth = depth
+        jj, ii = np.nonzero(depth[::4, ::4] >= min_depth)
+        jj, ii = jj * 4, ii * 4
+        self.perch_x = (self.x0 + ii).astype(np.float64)
+        self.perch_y = (self.y0 + jj).astype(np.float64)
+        self.perch_h = g[jj, ii].astype(np.float64)
+        self.perch_d = depth[jj, ii].astype(np.float64)
 
     def free_at(self, x, y):
         j, i = self.cell(x, y)
