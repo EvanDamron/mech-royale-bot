@@ -10,7 +10,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o
 FROM python:3.13-slim
 RUN pip install --no-cache-dir numpy==2.1.3
 WORKDIR /bot
-COPY mechfight.py worldmap.py bot.py ./
+COPY mechfight.py worldmap.py bot.py hybrid.py ./
 COPY vendor/giddy/LICENSE ./vendor/giddy/LICENSE
 COPY --from=giddy /giddy ./vendor/giddy/giddy
-ENTRYPOINT ["/bot/vendor/giddy/giddy"]
+ENTRYPOINT ["python3", "-u", "/bot/hybrid.py"]

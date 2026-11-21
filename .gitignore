@@ -29,3 +29,6 @@ __pycache__/
 # project
 .env
 *.pyc
+
+# local driver builds
+vendor/giddy/giddy-*
