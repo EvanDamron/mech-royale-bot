@@ -123,14 +123,17 @@ def main():
             except Exception:
                 use_child = False
                 child_ok = False
-        mine = None
-        if me is not None:
+        def run_mine():
+            if me is None:
+                return None
             try:
                 kfe.mf.draw.clear()
-                mine = dict(me.act(latest) or {})
+                r = dict(me.act(latest) or {})
                 kfe.mf.draw.take()
+                return r
             except Exception as e:
                 log("kfe act failed:", e)
+                return None
         action = None
         if use_child:
             while True:
@@ -151,7 +154,17 @@ def main():
                 if a.get("tick") == tick:
                     action = a
                     break
-        stats["giddy" if action is not None else "kfe"] += 1
+        if action is not None:
+            # answer first, then keep our bot's state warm
+            stats["giddy"] += 1
+            action["tick"] = tick
+            action.pop("debug", None)
+            last = action
+            send(action)
+            run_mine()
+            continue
+        mine = run_mine()
+        stats["kfe"] += 1
         if action is None:
             action = mine if mine is not None else {k: last[k] for k in ("move", "aim", "boost") if k in last}
         action["tick"] = tick
