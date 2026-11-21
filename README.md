@@ -18,3 +18,10 @@ python sim/run.py ffa --bot "A=python -u bot.py" --bot "B=python -u other.py" -n
 ```
 
 `sim/` expects the kit at `../starter/mechfight-kit` (for the map and the recorded config).
+
+## Third-party code (MIT)
+
+`vendor/giddy/` is giddygiddyboy's Mech Royale bot (Go), used unchanged under its MIT License (`vendor/giddy/LICENSE`,
+Copyright (c) 2026 giddygiddyboy). Source: `justnau/giddygiddyboy-mech-royale` at commit
+`e19e3c8d45d980df35c2fa5318353aaeb7c515bd`, as bundled in `charliescull/mech-royale-bot` (`drivers/giddy/`).
+The Dockerfile builds it in a pinned `golang:1.26.1-bookworm` stage. `Dockerfile.python` runs our own Python bot alone.
