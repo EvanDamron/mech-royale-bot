@@ -41,6 +41,7 @@ PARAMS = {
     "farm_t": float(os.environ.get("KFE_FARM_T", 120)),
     "kite": int(os.environ.get("KFE_KITE", 1)),
     "repel": float(os.environ.get("KFE_REPEL", 1.5)),
+    "npc_avoid": int(os.environ.get("KFE_NPC_AVOID", 1)),
     "evade": int(os.environ.get("KFE_EVADE", 0)),
     "evade_mem": float(os.environ.get("KFE_EVADE_MEM", 3.0)),
     "loot_kill": int(os.environ.get("KFE_LOOT_KILL", 1)),
@@ -220,6 +221,10 @@ class Bot:
                     if d2((cx, cy), mp) < d2((x, y), mp):
                         closer += 1
                 score = hidden * 100 - r - closer * 30
+                if PARAMS["npc_avoid"]:
+                    for n in self._npcs:
+                        if d2((cx, cy), n["pos"]) < 48:
+                            score -= 60
                 if best is None or score > best[0]:
                     best = (score, (cx, cy), hidden)
             if best and best[2] == len(threats) and r >= radii[min(1, len(radii) - 1)]:
@@ -299,6 +304,7 @@ class Bot:
         # ---- perception
         enemies = [m for m in obs["mechs"] if m["kind"] == "mech"]
         npcs = [m for m in obs["mechs"] if m["kind"] == "npc"]
+        self._npcs = npcs
         eye = (x, y, z + st.get("eye_height", 8))
         muzzle = (x, y, z + self.muzzle_h)
         for m in enemies:
@@ -529,8 +535,17 @@ class Bot:
             mvx, mvy, _ = self.nav_dir(goal, t)
             if PARAMS["repel"] and mode in ("home", "pick", "cube", "crate", "npc", "drop"):
                 rx = ry = 0.0
-                for m in enemies:
-                    R = 65.0 if "lightning" in (m.get("weapons") or []) and not light else 40.0
+                avoid = list(enemies)
+                if PARAMS["npc_avoid"] and mode != "npc":
+                    for n in npcs:
+                        n["_d"] = d2(n["pos"], (x, y))
+                        n["_npc"] = True
+                        avoid.append(n)
+                for m in avoid:
+                    if m.get("_npc"):
+                        R = 52.0
+                    else:
+                        R = 65.0 if "lightning" in (m.get("weapons") or []) and not light else 40.0
                     if m["_d"] < R:
                         w = (R - m["_d"]) / R
                         rx += (x - m["pos"][0]) / max(m["_d"], 1) * w
