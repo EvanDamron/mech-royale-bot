@@ -45,6 +45,7 @@ PARAMS = {
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
     "chase_hp": float(os.environ.get("KFE_CHASE_HP", 0.4)),
     "group": int(os.environ.get("KFE_GROUP", 1)),
+    "heal_hp": float(os.environ.get("KFE_HEAL_HP", 0)),
     "group_r": float(os.environ.get("KFE_GROUP_R", 120)),
     "rear_switch": float(os.environ.get("KFE_REAR_SWITCH", 0)),
     "farm_enemy_d": float(os.environ.get("KFE_FARM_ENEMY_D", 1e9)),
@@ -633,6 +634,21 @@ class Bot:
             face = (face_yaw, 0.0)
 
         farm_target = None
+        if goal is None and PARAMS["heal_hp"] and hp_frac < PARAMS["heal_hp"] \
+                and not any(m["_los"] for m in enemies) and t - self.last_hurt > 1.0 \
+                and not any(d2(lp, (x, y)) < 60 for lt, lp in self.loot_spots):
+            known = [{"pos": list(p)} for i, p in self.enemy_pos.items()
+                     if i in self.threats and t - self.threats[i][0] < 30]
+            if known:
+                if self.cover is None or t - self.cover_t > 2.0:
+                    self.cover = self.find_cover(known, obs, radii=(10, 20, 32))
+                    self.cover_t = t
+                if self.cover:
+                    goal = self.cover if d2(self.cover, (x, y)) > 2 else (x, y)
+                    mode = "heal"
+            else:
+                goal = (x, y)
+                mode = "heal"
         if goal is None and PARAMS["farm"]:
             cands = []
             if want_pick and want_pick[0] < 90 and self.safe_spot(want_pick[1]["pos"], obs):
