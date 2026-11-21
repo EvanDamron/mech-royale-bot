@@ -18,8 +18,8 @@ from worldmap import World  # noqa: E402
 TAU = 2 * math.pi
 LAT = 0.075          # our action lands about this long after the observation
 DEBUG = bool(int(os.environ.get("KFE_DEBUG", 0)))
-PARTIAL_COVER = bool(int(os.environ.get("K2_PARTIAL", 0)))  # no full cover: go where the fewest threats can see us
-USE_DROPS = bool(int(os.environ.get("K2_DROPS", 0)))       # go for supply drops (giddy ships with this off)
+PARTIAL_COVER = bool(int(os.environ.get("K2_PARTIAL", 1)))  # no full cover: go where the fewest threats can see us
+USE_DROPS = bool(int(os.environ.get("K2_DROPS", 1)))       # go for supply drops (giddy ships with this off)
 OPENING_HUNT = bool(int(os.environ.get("K2_OPENING", 0)))   # walk far for a laser in the first 20 s (giddy does not)
 
 UPG_LASER = ["plating", "armor", "laser_damage", "laser_charge", "nanites", "gun_damage", "gun_rate",
