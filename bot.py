@@ -44,6 +44,7 @@ PARAMS = {
     "engage": float(os.environ.get("KFE_ENGAGE", 120)),
     "ret_fire": int(os.environ.get("KFE_RET_FIRE", 1)),
     "chase_hp": float(os.environ.get("KFE_CHASE_HP", 0.4)),
+    "tgt_hp": float(os.environ.get("KFE_TGT_HP", 0.04)),
     "chase_d": float(os.environ.get("KFE_CHASE_D", 90)),
     "perch": int(os.environ.get("KFE_PERCH", 0)),
     "perch_t": float(os.environ.get("KFE_PERCH_T", 0)),
@@ -370,7 +371,7 @@ class Bot:
                 s = m["_d"]
                 if not m["_los"]:
                     s += 120
-                s += m["hp"] * 0.04
+                s += m["hp"] * PARAMS["tgt_hp"]
                 if m["_threat"]:
                     s -= 80 if m["_los"] else 40
                 return s
