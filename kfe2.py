@@ -40,6 +40,7 @@ V_PICK = int(os.environ.get("V_PICK", 1))     # visual review: finish weapon pic
 V_CORNER = int(os.environ.get("V_CORNER", 1)) # visual review: cornered with 2+ threats -> withdraw instead of trading in place
 V_REGEN = int(os.environ.get("V_REGEN", 1))   # visual review: under 50% HP and unhit 3 s, hold fire beyond 90 m (lets regen start)
 OPEN = int(os.environ.get("K2_OPEN", 0))     # opening: 1 = stand and turn a full circle first while unarmed; 2 = also no drone/crate farming while unarmed before 40 s
+V_CUBE = float(os.environ.get("V_CUBE", 0))   # visual review r2: take a cube only if it is this many m closer to us than to every mech seen in the last 5 s (0 = off)
 V_GATE = int(os.environ.get("V_GATE", 1))     # 1 = V_CORNER and V_REGEN only in practice mode
 # Hit rates measured on real matches (18 public showdown room captures, Nov 21): gun hits / shots by range band.
 # House bots (expert + organizer probes) and team bots (other teams' entries). Laser: expert 17/119/98/31 releases.
@@ -710,6 +711,12 @@ class Bot:
                 r, best = d, p["pos"]
         return best
 
+    def contested(self, pos, x, y):
+        """Visual review r2: a cube another mech is (nearly) as close to as we are; walking there walks into the next fight."""
+        d = hyp(pos[0] - x, pos[1] - y)
+        return any(t.kind == "mech" and self.now - t.seen < 5 and hyp(t.pos[0] - pos[0], t.pos[1] - pos[1]) < d + V_CUBE
+                   for t in self.tracks.values())
+
     def want_pickup(self, me, kind, slots):
         if kind == "gun":
             return slots[0] is None
@@ -815,6 +822,8 @@ class Bot:
         cube_v = 75.0 if me.get("cubes", 0) < self.cfg["cubes"]["stat_cap"] else 25.0
         for c in self.cubes.values():
             if hyp(c["pos"][0] - x, c["pos"][1] - y) < max(60.0, P["loot_r"] * 0.7):
+                if V_CUBE and self.contested(c["pos"], x, y):
+                    continue
                 consider("cube", c["id"], c["pos"], cube_v)
         crate_any = X_EXPLORE and unarmed and not self.prac_on and not danger
         no_farm = OPEN >= 2 and unarmed and now < 40   # opening review: 14 s farming drones unarmed while a laser lay 104 m away
@@ -1151,7 +1160,7 @@ class Bot:
                 bc = None
                 for c in self.cubes.values():
                     d = hyp(c["pos"][0] - x, c["pos"][1] - y)
-                    if d < r:
+                    if d < r and not (V_CUBE and self.contested(c["pos"], x, y)):
                         r, bc = d, c["pos"]
                 if bc is not None:
                     mx, my = self.travel(me, bc[0], bc[1])
