@@ -5,6 +5,7 @@ outnumbered in the open), peek-aware fight positioning, bullet and charging-lase
 early laser release, cube grabs during fights, utility-based looting with a reachability check, and a separate
 free-for-all policy once the match turns out not to be practice. Built on our own map model (worldmap.py).
 """
+import heapq
 import math
 import os
 import random
@@ -24,6 +25,19 @@ USE_DROPS = bool(int(os.environ.get("K2_DROPS", 0)))       # go for supply drops
 CROWD_N = int(os.environ.get("K2_CROWD", 3))                               # this many engaged/close enemies in view means retreat
 UPG_ORDER = os.environ.get("K2_UPG", "survive")              # "survive" or "damage"
 OPENING_HUNT = bool(int(os.environ.get("K2_OPENING", 0)))   # walk far for a laser in the first 20 s
+# --- free-for-all extensions from the league reviews (strategy-review/league); 0 switches each one off ---
+X_SEEK = float(os.environ.get("X_SEEK", 250))        # unarmed: walk this far for a laser or lightning (rival bots stop at 90 m)
+X_UNARMED = float(os.environ.get("X_UNARMED", 110))  # unarmed: keep this far from every mech
+X_AVOID = float(os.environ.get("X_AVOID", 80))       # armed, idle: keep this far from every mech (rival bots start fights at 60 m)
+X_DROPS = int(os.environ.get("X_DROPS", 1))          # free-for-all: take supply drops (rival bots never do and stay 60 m away)
+X_EXPLORE = int(os.environ.get("X_EXPLORE", 0))      # unarmed with no weapon in memory: walk and look instead of holding a spot
+X_BREAK = int(os.environ.get("X_BREAK", 0))          # free-for-all: break off a losing or two-sided fight and stop shooting
+X_FFA_N = int(os.environ.get("X_FFA_N", 1))           # deaths we did not cause that mean free-for-all (for testing late detection)
+X_PRACT = float(os.environ.get("X_PRACT", 20))       # no unexplained death by this time = practice match (rival bots use 20 s)
+X_STEALTH = int(os.environ.get("X_STEALTH", 1))      # before a free-for-all is confirmed: never sweep the aim across a mech
+X_HUSH = int(os.environ.get("X_HUSH", 1))            # before a free-for-all is confirmed: never close on a mech in view at over 3 m/s
+X_SPIN = int(os.environ.get("X_SPIN", 1))            # free-for-all: full-circle scan whenever the torso is free, also while walking
+X_FLOW = int(os.environ.get("X_FLOW", 1))            # full path field for long trips (the capped A* dead-ends)
 
 # our own upgrade preferences: survivability first, then the weapon we actually carry
 UPG_LASER = ["armor", "plating", "laser_damage", "laser_charge", "nanites", "gun_rate", "gun_damage", "gun_mag",
@@ -63,6 +77,69 @@ def clamp(v, lo, hi):
 
 def hyp(x, y):
     return math.hypot(x, y)
+
+
+class Flow:
+    """Shortest-path field toward one goal over the whole nav grid, built a few milliseconds per decision."""
+
+    def __init__(self, W, goal):
+        self.W = W
+        self.goal = (goal[0], goal[1])
+        gj, gi = W.nearest_free(*W.nav_cell(goal[0], goal[1]))
+        self.G = gj * W.gnx + gi
+        self.dist = {self.G: 0.0}
+        self.nxt = {self.G: -1}
+        self.heap = [(0.0, self.G)]
+        self.done = False
+
+    def work(self, budget_s):
+        W = self.W
+        gnx, gny = W.gnx, W.gny
+        free = W.nav_flat
+        dist, nxt, heap = self.dist, self.nxt, self.heap
+        t0 = time.perf_counter()
+        n_it = 0
+        SQ2 = 1.41421356
+        while heap:
+            n_it += 1
+            if n_it % 64 == 0 and time.perf_counter() - t0 > budget_s:
+                return
+            dc, cur = heapq.heappop(heap)
+            if dc > dist.get(cur, 1e18) + 1e-9:
+                continue
+            cj, ci = divmod(cur, gnx)
+            for di, dj, w in ((1, 0, 1.0), (-1, 0, 1.0), (0, 1, 1.0), (0, -1, 1.0),
+                              (1, 1, SQ2), (1, -1, SQ2), (-1, 1, SQ2), (-1, -1, SQ2)):
+                ni, nj = ci + di, cj + dj
+                if ni < 0 or nj < 0 or ni >= gnx or nj >= gny:
+                    continue
+                n = nj * gnx + ni
+                if not free[n]:
+                    continue
+                if di and dj and not (free[cj * gnx + ni] and free[nj * gnx + ci]):
+                    continue
+                nd = dc + w
+                if nd < dist.get(n, 1e18):
+                    dist[n] = nd
+                    nxt[n] = cur
+                    heapq.heappush(heap, (nd, n))
+        self.done = True
+
+    def waypoints(self, x, y, k=12):
+        W = self.W
+        gj, gi = W.nearest_free(*W.nav_cell(x, y))
+        n = gj * W.gnx + gi
+        if n not in self.nxt or (not self.done and self.heap and self.dist[n] > self.heap[0][0]):
+            return None
+        out = []
+        for _ in range(k):
+            n = self.nxt.get(n, -1)
+            if n < 0:
+                out.append(self.goal)
+                break
+            j, i = divmod(n, W.gnx)
+            out.append(W.nav_center(j, i))
+        return out
 
 
 class Track:
@@ -123,6 +200,10 @@ class Bot:
         self.home_xy = None
         self.home_at = -100.0
         self.mode = "idle"
+        self.flows = {}
+        self.break_until = -100.0
+        self.spin_t0 = 0.0
+        self.scan_dir = 1.0
 
     # ------------------------------------------------------------------ geometry helpers
     def height_of(self, cubes):
@@ -205,6 +286,23 @@ class Bot:
         if d < 70 and W.walk_clear((x, y), (gx, gy)):
             return (gx - x) / d, (gy - y) / d
         now = self.now
+        if X_FLOW and d > 90:
+            key = (round(gx / 8.0), round(gy / 8.0))
+            fl = self.flows.get(key)
+            if fl is None:
+                if len(self.flows) >= 3:
+                    self.flows.pop(next(iter(self.flows)))
+                fl = self.flows[key] = Flow(W, (gx, gy))
+            wp = fl.waypoints(x, y)
+            if wp:
+                tgt = wp[0]
+                for k in range(len(wp) - 1, 0, -1):
+                    if hyp(wp[k][0] - x, wp[k][1] - y) < 50 and W.walk_clear((x, y), wp[k]):
+                        tgt = wp[k]
+                        break
+                dd = hyp(tgt[0] - x, tgt[1] - y)
+                if dd > 1e-6:
+                    return (tgt[0] - x) / dd, (tgt[1] - y) / dd
         if self.path is None or self.path_goal is None or hyp(gx - self.path_goal[0], gy - self.path_goal[1]) > 6 \
                 or now - self.path_t > 2.5:
             self.path = W.astar((x, y), (gx, gy), max_expand=3500)
@@ -536,14 +634,23 @@ class Bot:
         P = self.P
         W = self.W
 
+        unarmed_ = slots[1] is None
         my_comp = W.comp_at(x, y)
         if my_comp < 0:
             my_comp = W.comp_main
+
+        keep_off = (X_UNARMED if unarmed_ else X_AVOID) if not self.prac_on else 0.0
 
         def consider(kind, oid, pos, value):
             nonlocal best
             if self.bad.get(oid, -1) > now:
                 return
+            ko = keep_off
+            if ko and kind == "pickup" and unarmed_:
+                ko = 65.0     # a first weapon is worth going close for, just not inside a 60 m bubble
+            if ko and any(now - t.seen < 10 and hyp(t.pos[0] - pos[0], t.pos[1] - pos[1]) < ko
+                          for t in self.tracks.values()):
+                return        # someone is on it: going there starts the fight we are avoiding
             d = hyp(pos[0] - x, pos[1] - y)
             if d > 260 or hyp(pos[0] - cur[0], pos[1] - cur[1]) > cur[2] - 6:
                 return
@@ -558,29 +665,40 @@ class Bot:
                 u *= 1.35
             if best is None or u > best[0]:
                 best = (u, kind, oid, pos)
+        unarmed = slots[1] is None
         for p in self.pickups.values():
             rad = P["loot_r"]
             seek = p["kind"] == "laser" and P["laser_seek"] > rad
             if seek:
                 rad = P["laser_seek"]
+            far = X_SEEK and unarmed and p["kind"] in ("laser", "lightning")
+            if far:
+                rad = max(rad, X_SEEK)
             if self.want_pickup(me, p["kind"], slots) and hyp(p["pos"][0] - x, p["pos"][1] - y) < rad:
                 v = 130.0 if slots[1] is None else 60.0
                 if seek:
                     v = max(v, 150.0)
+                if far:
+                    # league review: over a quarter of rival bot deaths are unarmed ones around 50 s, worth 3.7 points
+                    v = 330.0 if p["kind"] == "laser" else 260.0
+                    if any(now - t.seen < 10 and hyp(t.pos[0] - p["pos"][0], t.pos[1] - p["pos"][1]) < 65
+                           for t in self.tracks.values()):
+                        continue      # inside someone's 60 m bubble: not unarmed
                 consider("pickup", p["id"], p["pos"], v)
         cube_v = 75.0 if me.get("cubes", 0) < self.cfg["cubes"]["stat_cap"] else 25.0
         for c in self.cubes.values():
             if hyp(c["pos"][0] - x, c["pos"][1] - y) < max(60.0, P["loot_r"] * 0.7):
                 consider("cube", c["id"], c["pos"], cube_v)
-        if hp_frac > P["farm_hp"] and not danger and now < P["crates_until"]:
+        crate_any = X_EXPLORE and unarmed and not self.prac_on and not danger
+        if (hp_frac > P["farm_hp"] and not danger and now < P["crates_until"]) or crate_any:
             for c in self.crates.values():
-                if hyp(c["pos"][0] - x, c["pos"][1] - y) < P["loot_r"]:
-                    consider("crate", c["id"], c["pos"], cube_v * 0.6)
+                if hyp(c["pos"][0] - x, c["pos"][1] - y) < (150.0 if crate_any else P["loot_r"]):
+                    consider("crate", c["id"], c["pos"], 110.0 if crate_any else cube_v * 0.6)
             if me.get("cubes", 0) < self.cfg["cubes"]["stat_cap"]:
                 for n in self.npcs.values():
                     if now - n.seen < 12 and hyp(n.pos[0] - x, n.pos[1] - y) < P["loot_r"]:
                         consider("npc", n.id, n.pos, 85.0)
-        if USE_DROPS and not danger:
+        if (USE_DROPS or (X_DROPS and not self.prac_on)) and not danger:
             for d in o.get("drops") or []:
                 dd = hyp(d["pos"][0] - x, d["pos"][1] - y)
                 if d.get("holder") not in (None, self.slot) and d.get("lands_in", 0) <= 0:
@@ -667,13 +785,13 @@ class Bot:
         # free-for-all detection: deaths we did not cause (house squads only die to us)
         if self.start_alive is None:
             self.start_alive = o["alive"]
-        if self.start_alive - o["alive"] - self.kills > 0:
+        if self.start_alive - o["alive"] - self.kills >= X_FFA_N:
             self.other_dead += 1
         else:
             self.other_dead = 0
         if self.other_dead >= 5:
             self.ffa = True
-        on = not self.ffa and now > 20
+        on = not self.ffa and now > X_PRACT
         if on != self.prac_on:
             self.prac_on = on
             self.P = dict(SQUAD) if on else dict(FFA)
@@ -792,6 +910,22 @@ class Bot:
                 self.lose_at = now
             self.retreat = self.lose_at > 0 and now - self.lose_at < 1.5
 
+        # A rival bot keeps fighting only while we are inside 60 m, hit it in the last 4 s, or sit under 350 HP inside 120 m.
+        # So a fight we are losing, or one with two of them, ends if we leave and hold fire.
+        brk = False
+        if X_BREAK and not self.prac_on and not late and not finishing:
+            hitters = sum(1 for t in seen if now - t.hit_me < 4)
+            tf = target.hp / max(1.0, target.max_hp) if target is not None else 1.0
+            fair = hitters >= 1 and not (tf < hp_frac - 0.25 or (target is not None and target.hp < 450))
+            if hitters >= 2 or (hitters >= 1 and target is not None and hp_frac < 0.6 and tf > hp_frac + 0.05) \
+                    or (hitters >= 1 and me["hp"] < 520) or (X_BREAK >= 2 and fair):
+                self.break_until = now + 5.0
+            elif now < self.break_until and (any(now - t.seen < 3 and t.dist < 90 for t in seen) or now - self.last_hurt < 3):
+                self.break_until = max(self.break_until, now + 2.0)
+            brk = now < self.break_until
+            if brk:
+                self.retreat = True
+
         # ---- movement mode
         mx = my = 0.0
         boost = False
@@ -908,6 +1042,27 @@ class Bot:
             elif zdist > 3 and (not P["ghost"] or z["next_radius"] <= 30):
                 mx, my = self.travel(me, zgx, zgy)
                 mode = "zone-walk"
+            elif P["ghost"] and X_EXPLORE and slots[1] is None and not self.prac_on and not late:
+                # a rival bot that never finds a weapon holds its spot and dies unarmed (16 of 60 league matches): go look
+                ex = getattr(self, "explore", None)
+                if ex is None or now > self.explore_until or hyp(ex[0] - x, ex[1] - y) < 8:
+                    ex = None
+                    for _ in range(20):
+                        a_ = self.rng.random() * TAU
+                        r_ = math.sqrt(self.rng.random()) * z["next_radius"] * 0.8
+                        px_, py_ = z["next_center"][0] + math.cos(a_) * r_, z["next_center"][1] + math.sin(a_) * r_
+                        dd_ = hyp(px_ - x, py_ - y)
+                        if dd_ < 50 or dd_ > 220 or not W.in_bounds(px_, py_, 5) or not W.free_at(px_, py_):
+                            continue
+                        if any(now - t.seen < 15 and hyp(t.pos[0] - px_, t.pos[1] - py_) < 110 for t in self.tracks.values()):
+                            continue
+                        ex = (px_, py_)
+                        break
+                    self.explore = ex
+                    self.explore_until = now + 30
+                if ex is not None:
+                    mx, my = self.travel(me, ex[0], ex[1])
+                    mode = "explore"
             elif P["ghost"]:
                 h = self.home(o)
                 if h and hyp(h[0] - x, h[1] - y) > 3:
@@ -917,6 +1072,116 @@ class Bot:
                         mx, my = mx * q, my * q
                     mode = "home"
 
+        if brk and mode not in ("unstuck", "zone"):
+            # distance ends the fight, cover does not: a spot behind a wall 60 m from a rival bot that is still on us is a
+            # place to be walked around and shot (review: 14 s in "cover" at 85 m, 1766 HP lost, 428 dealt)
+            rx = ry = 0.0
+            for t in self.tracks.values():
+                if now - t.seen > 10:
+                    continue
+                dm = hyp(t.pos[0] - x, t.pos[1] - y)
+                if dm < 150:
+                    w = 0.3 + (150 - dm) / 150
+                    rx += (x - t.pos[0]) / max(dm, 1.0) * w
+                    ry += (y - t.pos[1]) / max(dm, 1.0) * w
+            if not (rx or ry) and now - self.last_hurt < 4:
+                rx, ry = -math.cos(self.hurt_bearing), -math.sin(self.hurt_bearing)
+            if rx or ry:
+                n = hyp(rx, ry)
+                ax, ay = rx / n, ry / n
+                if self.zone_penalty(z, x + ax * 25, y + ay * 25, now) > 40:
+                    tx_, ty_ = -ay, ax
+                    if self.zone_penalty(z, x + tx_ * 25, y + ty_ * 25, now) > self.zone_penalty(z, x - tx_ * 25, y - ty_ * 25, now):
+                        tx_, ty_ = -tx_, -ty_
+                    ax, ay = tx_, ty_
+                if not W.walk_clear((x, y), (x + ax * 6, y + ay * 6)):
+                    for da in (0.5, -0.5, 1.0, -1.0, 1.5, -1.5):
+                        ca, sa = math.cos(da), math.sin(da)
+                        bx_, by_ = ax * ca - ay * sa, ax * sa + ay * ca
+                        if W.walk_clear((x, y), (x + bx_ * 6, y + by_ * 6)):
+                            ax, ay = bx_, by_
+                            break
+                mx, my = ax, ay
+                boost = me["energy"] > 5
+                mode = "break"
+        # free-for-all spacing: rival bots start a fight at 60 m. Unarmed we lose it (league: dealt/taken 0.38), so keep clear.
+        if not self.prac_on and mode not in ("unstuck", "zone", "cover", "hide", "fight", "fight:cube", "cornered") \
+                and not late:
+            R = X_UNARMED if slots[1] is None else X_AVOID
+            if R > 0:
+                rx = ry = 0.0
+                hurry = False
+                for t in self.tracks.values():
+                    if now - t.seen > 8:
+                        continue
+                    dm = hyp(t.pos[0] - x, t.pos[1] - y)
+                    if dm < R:
+                        w = 0.35 + (R - dm) / R
+                        rx += (x - t.pos[0]) / max(dm, 1.0) * w
+                        ry += (y - t.pos[1]) / max(dm, 1.0) * w
+                        if dm < R - 8 or t.closing > 4:
+                            hurry = True
+                if rx or ry:
+                    n = hyp(rx, ry)
+                    ax, ay = rx / n, ry / n
+                    # do not back out of the circle: slide along its edge instead
+                    if self.zone_penalty(z, x + ax * 25, y + ay * 25, now) > 40:
+                        tx_, ty_ = -ay, ax
+                        if self.zone_penalty(z, x + tx_ * 25, y + ty_ * 25, now) > self.zone_penalty(z, x - tx_ * 25, y - ty_ * 25, now):
+                            tx_, ty_ = -tx_, -ty_
+                        ax, ay = tx_, ty_
+                    if not W.walk_clear((x, y), (x + ax * 6, y + ay * 6)):
+                        # review: "+space" walked into walls and stood there (stalls of 5 to 80 s)
+                        for da in (0.5, -0.5, 1.0, -1.0, 1.5, -1.5):
+                            ca, sa = math.cos(da), math.sin(da)
+                            bx_, by_ = ax * ca - ay * sa, ax * sa + ay * ca
+                            if W.walk_clear((x, y), (x + bx_ * 6, y + by_ * 6)):
+                                ax, ay = bx_, by_
+                                break
+                    mx, my = ax, ay
+                    boost = hurry and me["energy"] > 20
+                    farm = None
+                    farm_pos = None
+                    mode += "+space"
+        if X_HUSH and not self.prac_on and now > 19 and (not self.ffa or (self.start_alive - o["alive"] < 2 and now < 60)) \
+                and mode not in ("unstuck", "zone", "cover", "hide", "fight", "fight:cube", "cornered", "break"):
+            # from 20 s until the first death every rival bot attacks whatever closes on it at over 3 m/s inside 180 m
+            # (review: 4 of 10 deaths before 40 s were lasers from 110-120 m while we ran for a pickup). Its own walk
+            # toward us counts, so the limit is on the relative speed: slow down, sidestep or back away to stay under it.
+            cons = []
+            for t in self.tracks.values():
+                if now - t.seen > 0.35 or t.dist > 190 or t.dist < 1:
+                    continue
+                ux, uy = (t.pos[0] - x) / t.dist, (t.pos[1] - y) / t.dist
+                cons.append((ux, uy, 2.2 + t.vel[0] * ux + t.vel[1] * uy))
+            if cons:
+                sp = walk * (1.5 if boost else 1.0)
+                wx, wy = mx * sp, my * sp
+                best = None
+                cands = [(wx, wy), (wx * 0.5, wy * 0.5), (wx * 0.2, wy * 0.2), (0.0, 0.0)]
+                for k in range(16):
+                    a_ = k * TAU / 16
+                    for q_ in (1.0, 0.5):
+                        cands.append((math.cos(a_) * walk * q_, math.sin(a_) * walk * q_))
+                for cx_, cy_ in cands:
+                    viol = sum(max(0.0, cx_ * ux + cy_ * uy - c) for ux, uy, c in cons)
+                    pen = 0.0
+                    if cx_ or cy_:
+                        n_ = hyp(cx_, cy_)
+                        if not W.walk_clear((x, y), (x + cx_ / n_ * 5, y + cy_ / n_ * 5)):
+                            pen = 4.0
+                        elif self.zone_penalty(z, x + cx_ / n_ * 20, y + cy_ / n_ * 20, now) > 40:
+                            pen = 4.0
+                    sc = viol * 3.0 + hyp(cx_ - wx, cy_ - wy) / walk + pen
+                    if best is None or sc < best[0]:
+                        best = (sc, cx_, cy_)
+                if (best[1], best[2]) != (wx, wy):
+                    mx, my = best[1] / walk, best[2] / walk
+                    n_ = hyp(mx, my)
+                    if n_ > 1:
+                        mx, my = mx / n_, my / n_
+                    boost = False
+                    mode += "+hush"
         if mode not in ("unstuck",):
             dx, dy, lz = self.dodge(o)
             if dx or dy:
@@ -980,6 +1245,20 @@ class Bot:
             shootable = True
         if not is_mech and target is None and (self.retreat or hp_frac < 0.5) and not defend:
             shootable = False
+        stealth = X_STEALTH and not self.prac_on and now > 17 and (not self.ffa or (self.start_alive - o["alive"] < 2 and now < 60))
+        if stealth and shootable and not is_mech and not defend:
+            b0 = math.atan2(tp[1] - y, tp[0] - x)
+            if any(now - t.seen < 4 and hyp(t.pos[0] - x, t.pos[1] - y) < 200
+                   and abs(wrap(math.atan2(t.pos[1] - y, t.pos[0] - x) - b0)) < 0.3 for t in self.tracks.values()):
+                shootable = False     # a crate or drone in line with a mech: shooting it reads as aiming at the mech
+        if X_SPIN and not self.prac_on and shootable and not is_mech and not defend:
+            # farming keeps the torso on a crate or drone for seconds at a time: break for one turn every 4 s
+            if now - self.spin_t0 > 5.7:
+                self.spin_t0 = now
+            if now - self.spin_t0 > 4.0:
+                shootable = False
+        if brk and is_mech and target is not None and target.dist > 62 and not (target.hp < 200):
+            shootable = False     # outside 60 m every hit we land restarts its 4 s clock on us; inside it shoots anyway
         if shootable:
             dist = hyp(tp[0] - x, tp[1] - y)
             grounded = abs(tv[2]) < 0.5
@@ -1060,10 +1339,23 @@ class Bot:
                 aim[0] = self.npc_bearing
             elif now - self.last_hurt < 2.5:
                 aim[0] = self.hurt_bearing
-            elif mx or my:
+            elif (mx or my) and not (X_SPIN and not self.prac_on):
                 aim[0] = math.atan2(my, mx) + 1.15 * math.sin(now * 1.3)
             else:
-                aim[0] = me["aim"][0] + 0.35
+                aim[0] = me["aim"][0] + 0.35      # full circle about every 1.6 s: nothing walks up behind us unseen
+                if stealth:
+                    # from 20 s until the first death every rival bot fights whatever points its torso at it inside 190 m:
+                    # scan back and forth between the mechs we know of instead of across them (they stay inside the cone)
+                    brg = [math.atan2(t.pos[1] - y, t.pos[0] - x) for t in self.tracks.values()
+                           if now - t.seen < 4 and hyp(t.pos[0] - x, t.pos[1] - y) < 200]
+                    ok = False
+                    for _ in range(2):
+                        nxt = me["aim"][0] + 0.35 * self.scan_dir
+                        if all(abs(wrap(nxt - b)) > 0.32 for b in brg):
+                            ok = True
+                            break
+                        self.scan_dir = -self.scan_dir
+                    aim[0] = nxt if ok else me["aim"][0]
             aim[1] = 0.0
         aim[1] = clamp(aim[1], st.get("min_pitch", -0.7), st.get("max_pitch", 1.3))
 
@@ -1086,6 +1378,19 @@ class Bot:
             act["take"] = p["id"]
             break
 
+        if X_FLOW:
+            if X_DROPS and not self.prac_on:
+                for d in o.get("drops") or []:
+                    key = (round(d["pos"][0] / 8.0), round(d["pos"][1] / 8.0))
+                    if key not in self.flows and len(self.flows) < 3:
+                        self.flows[key] = Flow(W, d["pos"])
+            spare = 0.016 - (time.perf_counter() - t0)
+            if spare > 0.002:
+                for fl in list(self.flows.values()):
+                    if not fl.done:
+                        fl.work(min(spare, 0.008))
+                        break
+        mf.draw.label(f"{mode} hp{me['hp']:.0f}")
         act["move"] = [round(mx, 3), round(my, 3)]
         act["boost"] = bool(boost and (mx or my))
         act["jump"] = jump
