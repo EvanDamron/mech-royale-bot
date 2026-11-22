@@ -39,6 +39,7 @@ X_HUSH = int(os.environ.get("X_HUSH", 1))            # before a free-for-all is 
 V_PICK = int(os.environ.get("V_PICK", 1))     # visual review: finish weapon pickups within 25 m (mid-fight too; no +space/+hush push)
 V_CORNER = int(os.environ.get("V_CORNER", 1)) # visual review: cornered with 2+ threats -> withdraw instead of trading in place
 V_REGEN = int(os.environ.get("V_REGEN", 1))   # visual review: under 50% HP and unhit 3 s, hold fire beyond 90 m (lets regen start)
+OPEN = int(os.environ.get("K2_OPEN", 0))     # opening: 1 = stand and turn a full circle first while unarmed; 2 = also no drone/crate farming while unarmed before 40 s
 V_GATE = int(os.environ.get("V_GATE", 1))     # 1 = V_CORNER and V_REGEN only in practice mode
 # Hit rates measured on real matches (18 public showdown room captures, Nov 21): gun hits / shots by range band.
 # House bots (expert + organizer probes) and team bots (other teams' entries). Laser: expert 17/119/98/31 releases.
@@ -816,7 +817,8 @@ class Bot:
             if hyp(c["pos"][0] - x, c["pos"][1] - y) < max(60.0, P["loot_r"] * 0.7):
                 consider("cube", c["id"], c["pos"], cube_v)
         crate_any = X_EXPLORE and unarmed and not self.prac_on and not danger
-        if (hp_frac > P["farm_hp"] and not danger and now < P["crates_until"]) or crate_any:
+        no_farm = OPEN >= 2 and unarmed and now < 40   # opening review: 14 s farming drones unarmed while a laser lay 104 m away
+        if ((hp_frac > P["farm_hp"] and not danger and now < P["crates_until"]) or crate_any) and not no_farm:
             for c in self.crates.values():
                 if hyp(c["pos"][0] - x, c["pos"][1] - y) < (150.0 if crate_any else P["loot_r"]):
                     consider("crate", c["id"], c["pos"], 110.0 if crate_any else cube_v * 0.6)
@@ -1249,7 +1251,13 @@ class Bot:
                 mode = "break"
         # free-for-all spacing: rival bots start a fight at 60 m. Unarmed we lose it (league: dealt/taken 0.38), so keep clear.
         close_pick = V_PICK and mode == "loot:pickup" and self.near_pick(me, slots, x, y, zf) is not None
-        if not self.prac_on and not close_pick and mode not in ("unstuck", "zone", "cover", "hide", "fight", "fight:cube", "fight:pick", "cornered") \
+        if OPEN and now < 2.5 and slots[1] is None and target is None and mode not in ("unstuck", "zone"):
+            # opening review: pickups are listed only while in view; 6 of 24 spawns had no second weapon by 40 s
+            mx = my = 0.0
+            farm = None
+            farm_pos = None
+            mode = "scan"
+        if not self.prac_on and not close_pick and mode not in ("unstuck", "zone", "cover", "hide", "fight", "fight:cube", "fight:pick", "cornered", "scan") \
                 and not late:
             R = X_UNARMED if slots[1] is None else X_AVOID
             if R > 0:
