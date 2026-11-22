@@ -77,8 +77,8 @@ F_RANGE = int(os.environ.get("F_RANGE", 0))   # lightning vs laser at 30-70 m: c
 F_ARM = int(os.environ.get("F_ARM", 0))       # unarmed, free-for-all confirmed, walking to a weapon: keep only 70 m from mechs
 SALT = int(os.environ.get("K2_SALT", 7))     # salt for the tie-break and strafe random draws (no strategy effect)
 F_STUCK = int(os.environ.get("F_STUCK", 1))   # 3 unstuck triggers in 10 s: jump and jet toward where we were going
-ARM_NEAR = float(os.environ.get("K2_ARMNEAR", 0))   # unarmed: a wanted weapon within this many m overrides free-for-all spacing (0 = off)
-ARM_NEAR_K = int(os.environ.get("K2_ARMNEAR_K", 0))  # 1: also take that weapon when another mech is near it
+ARM_NEAR = float(os.environ.get("K2_ARMNEAR", 90))   # unarmed: a wanted weapon within this many m overrides free-for-all spacing (0 = off)
+ARM_NEAR_K = int(os.environ.get("K2_ARMNEAR_K", 1))  # 1: also take that weapon when another mech is near it
 X_SPIN = int(os.environ.get("X_SPIN", 1))            # free-for-all: full-circle scan whenever the torso is free, also while walking
 X_FLOW = int(os.environ.get("X_FLOW", 1))            # full path field for long trips (the capped A* dead-ends)
 
