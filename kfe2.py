@@ -84,6 +84,11 @@ H_REAR = float(os.environ.get("H_REAR", 0))       # target score: meters off for
 H_EARS = int(os.environ.get("H_EARS", 0))         # practice: place unseen mechs by sound and look there when idle (house bots ignore sound)
 H_ARC = float(os.environ.get("H_ARC", 0))         # practice, laser in hand: back out of a lightning holder's arc inside this many m (0 = off)
 H_HIDE = int(os.environ.get("H_HIDE", 0))         # practice, nothing to fight: stand out of sight of the squad (1: instead of idling; 2: also instead of crate/drone farming)
+H_NANO = int(os.environ.get("H_NANO", 0))         # practice upgrades: repair nanites first (house hunters arrive a few s apart; regen 45 -> 72 HP/s, delay 5 -> 3.5 s)
+H_HOLD = float(os.environ.get("H_HOLD", 0))       # practice: below this HP fraction and unhit 3 s, hold fire on targets beyond H_HOLD_R (regen needs no damage dealt either)
+H_HOLD_R = float(os.environ.get("H_HOLD_R", 90))
+H_VIEW = int(os.environ.get("H_VIEW", 0))         # practice, nothing to fight: wait on an open spot (1: instead of idling; 2: also instead of crate/drone farming)
+H_VIEW_R = float(os.environ.get("H_VIEW_R", 150))  # a hunter that sees us inside ~170 m only strafes in at ~3 m/s; one that cannot walks straight in
 H_PEEK = int(os.environ.get("H_PEEK", 0))         # practice: peek-fight (hide while the laser cools / gun reloads); house react timers restart
 
 # our own upgrade preferences: survivability first, then the weapon we actually carry
@@ -267,6 +272,8 @@ class Bot:
         self.heard = None       # (bearing, dist bucket, time) of the latest loud sound
         self.ghosts = []        # unexplained mech sounds: (time, x, y, bearing, kind, est range)
         self.look = None        # (bearing, until): turn the torso toward an unexplained sound
+        self.view_xy = None
+        self.view_at = -100.0
 
     # ------------------------------------------------------------------ geometry helpers
     def height_of(self, cubes):
@@ -584,6 +591,54 @@ class Bot:
             return None
         self.cover_goal = (best[1], best[2])
         return self.travel_cover(me)
+
+    def openness(self, px, py):
+        """Clear sight lines from (px, py) at mech height: 16 directions, at 80 m and at H_VIEW_R."""
+        W = self.W
+        ez = self.walk_z(px, py) + 8.0
+        n = 0
+        for k in range(16):
+            a = k * TAU / 16
+            ca, sa = math.cos(a), math.sin(a)
+            for r in (80.0, H_VIEW_R):
+                bx, by = px + ca * r, py + sa * r
+                if not W.in_bounds(bx, by):
+                    break
+                if not W.los((px, py, ez), (bx, by, self.walk_z(bx, by) + 4.5)):
+                    break
+                n += 1
+        return n
+
+    def view_spot(self, o):
+        """Pick (every 6 s) an open spot within ~70 m inside the next zone: hunters that see us from afar slow down."""
+        me = o["self"]
+        z = o["zone"]
+        x, y = me["pos"][0], me["pos"][1]
+        if self.view_xy is not None and self.now - self.view_at < 6:
+            return self.view_xy
+        self.view_at = self.now
+        t_end = time.perf_counter() + 0.008
+        cur = self.openness(x, y) if self.zone_penalty(z, x, y, self.now + 20) == 0 else -99
+        best = (cur, x, y)
+        if self.view_xy is not None:
+            vx, vy = self.view_xy
+            if self.zone_penalty(z, vx, vy, self.now + 20) == 0:
+                v = self.openness(vx, vy) - 0.04 * hyp(vx - x, vy - y) + 2
+                if v > best[0]:
+                    best = (v, vx, vy)
+        for _ in range(16):
+            if time.perf_counter() > t_end:
+                break
+            a = self.rng.random() * TAU
+            r = 15 + self.rng.random() * 55
+            px, py = x + math.cos(a) * r, y + math.sin(a) * r
+            if not self.W.in_bounds(px, py, 10) or not self.W.free_at(px, py) or self.zone_penalty(z, px, py, self.now + 20) > 0:
+                continue
+            v = self.openness(px, py) - 0.04 * r
+            if v > best[0] + 2:
+                best = (v, px, py)
+        self.view_xy = (best[1], best[2])
+        return self.view_xy
 
     def plan_move(self, o, mx, my, target, weapons, walk, z):
         """Expected damage taken minus dealt over the next ~1.2 s for each candidate step; keep the mode's direction
@@ -1108,6 +1163,8 @@ class Bot:
             order = UPG_LASER if self.prac_on else UPG_BASE
             if UPG_ORDER == "damage":
                 order = UPG_DAMAGE
+            if H_NANO and self.prac_on:
+                order = ["nanites"] + [u for u in order if u != "nanites"]
             ch = o["offer"]["choices"]
             act["pick"] = min(range(len(ch)), key=lambda i: order.index(ch[i]["id"]) if ch[i]["id"] in order else 99)
 
@@ -1444,6 +1501,18 @@ class Bot:
                 farm = None
                 farm_pos = None
                 mode = "hide:squad"
+        if H_VIEW and self.prac_on and not late and foe is None and (
+                mode in ("idle", "zone-walk") or (H_VIEW >= 2 and mode in ("loot:crate", "loot:npc"))):
+            # house hunters walk straight in until they see us, then strafe in slowly from ~170 m: wait where they see us early,
+            # so they arrive one at a time and at laser range
+            vx, vy = self.view_spot(o)
+            if hyp(vx - x, vy - y) > 3:
+                mx, my = self.travel(me, vx, vy)
+            else:
+                mx = my = 0.0
+            farm = None
+            farm_pos = None
+            mode = "view"
         if brk and mode not in ("unstuck", "zone"):
             # distance ends the fight, cover does not: a spot behind a wall 60 m from a rival bot that is still on us is a
             # place to be walked around and shot (review: 14 s in "cover" at 85 m, 1766 HP lost, 428 dealt)
@@ -1739,6 +1808,9 @@ class Bot:
                         fire[i] = not (ey < tol_y * 0.9 and ep < tol_p)
         if V_REGEN and (self.prac_on or not V_GATE) and target is not None and hp_frac < 0.5 and now - self.last_hurt > 3 \
                 and target.dist > 90 and target.hp > 0.3 * target.max_hp:
+            fire = [False, False]
+        if H_HOLD and self.prac_on and target is not None and hp_frac < H_HOLD and now - self.last_hurt > 3 \
+                and target.dist > H_HOLD_R and target.hp > 0.3 * target.max_hp:
             fire = [False, False]
         if target is None and foe is not None:
             # pre-charge the laser before the target steps back into view
