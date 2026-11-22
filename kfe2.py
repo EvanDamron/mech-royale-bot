@@ -101,6 +101,7 @@ D_ROOF = int(os.environ.get("D_ROOF", 0))
 ARM_NEAR = float(os.environ.get("K2_ARMNEAR", 90))   # unarmed: a wanted weapon within this many m overrides free-for-all spacing (0 = off)
 ARM_NEAR_K = int(os.environ.get("K2_ARMNEAR_K", 1))  # 1: also take that weapon when another mech is near it
 X_CLOSER = int(os.environ.get("X_CLOSER", 0))   # 1: unarmed, skip a weapon only when another mech is clearly closer to it (30 m of it, or under 0.8x our distance), and no spacing push on the walk
+X_ATTK = int(os.environ.get("X_ATTK", 0))   # 1: practice fight exit on mechs that hit us in the last 4 s and a time-to-death estimate, not mechs in view
 X_SPIN = int(os.environ.get("X_SPIN", 1))            # free-for-all: full-circle scan whenever the torso is free, also while walking
 X_FLOW = int(os.environ.get("X_FLOW", 1))            # full path field for long trips (the capped A* dead-ends)
 # --- house-squad exploits (practice mode only; all off by default) ---
@@ -1248,6 +1249,13 @@ class Bot:
         x, y, zf = me["pos"]
         z = o["zone"]
         hp_frac = me["hp"] / max(1.0, me["max_hp"])
+        if X_ATTK:
+            hh = getattr(self, "hp_hist", None)
+            if hh is None:
+                hh = self.hp_hist = []
+            hh.append((self.now, me["hp"]))
+            while hh and self.now - hh[0][0] > 3.0:
+                hh.pop(0)
         slots = me["weapons"]
         weapons = {w["kind"]: w for w in slots if w}
         gun, light, laser = weapons.get("gun"), weapons.get("lightning"), weapons.get("laser")
@@ -1347,6 +1355,14 @@ class Bot:
         if P["lose_rule"]:
             near = sum(1 for t in seen if t.seen == now and t.dist < 160)
             losing = (near >= 2 and hp_frac < 0.55) or (near >= 3 and hp_frac < 0.8)
+            if X_ATTK:
+                near = sum(1 for t in seen if now - t.hit_me < 4)     # attackers, not onlookers
+                hh = self.hp_hist
+                lost = hh[0][1] - me["hp"] if len(hh) > 1 else 0.0
+                dps = lost / max(0.5, now - hh[0][0]) if lost > 0 else 0.0
+                ttd = me["hp"] / dps if dps > 0 else 1e9
+                losing = (near >= 2 and ((ttd < 10 and hp_frac < 0.8) or (ttd < 20 and hp_frac < 0.45))) or \
+                         (near == 1 and ttd < 25 and hp_frac < 0.5)
             if target is not None:
                 tf = target.hp / max(1.0, target.max_hp)
                 if hp_frac < 0.35 and tf > hp_frac + 0.1:
