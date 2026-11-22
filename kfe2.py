@@ -69,7 +69,7 @@ X_EARS = int(os.environ.get("X_EARS", 0))            # free-for-all: place unsee
 X_ODDS_FFA = int(os.environ.get("X_ODDS_FFA", 1))    # 1: the odds rule waits for the first death we did not cause
 X_RANGE = float(os.environ.get("X_RANGE", 0))        # free-for-all: gun and laser fighting range (0 = keep 85 m)
 # --- free-for-all fixes from the visual review (all off by default, never active in practice mode) ---
-F_DROP = int(os.environ.get("F_DROP", 0))     # drops: wait ~90 m out, walk in to arrive as it lands, skip when unarmed/final 3/stronger mech near
+F_DROP = int(os.environ.get("F_DROP", 0))     # drops: wait ~90 m out, walk in to arrive as it lands; 1 also skips when unarmed/final 3/stronger mech near
 F_RANGE = int(os.environ.get("F_RANGE", 0))   # lightning vs laser at 30-70 m: close in or hide; laser vs lightning: stay out of its arc
 F_ARM = int(os.environ.get("F_ARM", 0))       # unarmed, free-for-all confirmed, walking to a weapon: keep only 70 m from mechs
 F_STUCK = int(os.environ.get("F_STUCK", 0))   # 3 unstuck triggers in 10 s: jump and jet toward where we were going
@@ -859,13 +859,13 @@ class Bot:
                 for n in self.npcs.values():
                     if now - n.seen < 12 and hyp(n.pos[0] - x, n.pos[1] - y) < P["loot_r"]:
                         consider("npc", n.id, n.pos, 85.0)
-        drops_ok = not (F_DROP and not self.prac_on and (unarmed or o["alive"] <= 3))
+        drops_ok = not (F_DROP == 1 and not self.prac_on and (unarmed or o["alive"] <= 3))
         if (USE_DROPS or (X_DROPS and not self.prac_on)) and not danger and drops_ok:
             for d in o.get("drops") or []:
                 dd = hyp(d["pos"][0] - x, d["pos"][1] - y)
                 if d.get("holder") not in (None, self.slot) and d.get("lands_in", 0) <= 0:
                     continue
-                if F_DROP and not self.prac_on and self.drop_threat(me, slots, d["pos"]):
+                if F_DROP == 1 and not self.prac_on and self.drop_threat(me, slots, d["pos"]):
                     continue
                 if dd / me["stats"].get("walk_speed", 11.7) < d.get("lands_in", 0) + 25:
                     consider("drop", d["id"], d["pos"], 260.0)
@@ -1411,7 +1411,7 @@ class Bot:
                 mode = "break"
         # free-for-all spacing: rival bots start a fight at 60 m. Unarmed we lose it (league: dealt/taken 0.38), so keep clear.
         close_pick = V_PICK and mode == "loot:pickup" and self.near_pick(me, slots, x, y, zf) is not None
-        close_pick = close_pick or mode == "loot:drop:go"     # F_DROP: committed; drop_threat already cleared the area
+        close_pick = close_pick or (F_DROP == 1 and mode == "loot:drop:go")     # committed; drop_threat already cleared the area
         if not self.prac_on and not close_pick and mode not in ("unstuck", "zone", "cover", "hide", "fight", "fight:cube", "fight:pick", "fight:close", "fight:hide", "fight:back", "cornered") \
                 and not late:
             R = X_UNARMED if slots[1] is None else X_AVOID
