@@ -75,7 +75,7 @@ X_RANGE = float(os.environ.get("X_RANGE", 0))        # free-for-all: gun and las
 F_DROP = int(os.environ.get("F_DROP", 0))     # drops: wait ~90 m out, walk in to arrive as it lands; 1 also skips when unarmed/final 3/stronger mech near
 F_RANGE = int(os.environ.get("F_RANGE", 0))   # lightning vs laser at 30-70 m: close in or hide; laser vs lightning: stay out of its arc
 F_ARM = int(os.environ.get("F_ARM", 0))       # unarmed, free-for-all confirmed, walking to a weapon: keep only 70 m from mechs
-SALT = int(os.environ.get("K2_SALT", 7))     # salt for the tie-break and strafe random draws (no strategy effect)
+SALT = int(os.environ.get("K2_SALT", 8))     # salt for the tie-break and strafe random draws (no strategy effect)
 F_STUCK = int(os.environ.get("F_STUCK", 1))   # 3 unstuck triggers in 10 s: jump and jet toward where we were going
 ARM_NEAR = float(os.environ.get("K2_ARMNEAR", 90))   # unarmed: a wanted weapon within this many m overrides free-for-all spacing (0 = off)
 ARM_NEAR_K = int(os.environ.get("K2_ARMNEAR_K", 1))  # 1: also take that weapon when another mech is near it
