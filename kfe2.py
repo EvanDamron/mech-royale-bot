@@ -23,7 +23,7 @@ WITHDRAW = bool(int(os.environ.get("K2_WITHDRAW", 1)))       # swamped, no cover
 USE_DROPS = bool(int(os.environ.get("K2_DROPS", 0)))       # go for supply drops (league: costs placement, off)
 CROWD_N = int(os.environ.get("K2_CROWD", 3))                               # this many engaged/close enemies in view means retreat
 UPG_ORDER = os.environ.get("K2_UPG", "survive")              # "survive" or "damage"
-OPENING_HUNT = bool(int(os.environ.get("K2_OPENING", 0)))   # walk far for a laser in the first 20 s
+OPENING_HUNT = bool(int(os.environ.get("K2_OPENING", 1)))   # walk far for a laser in the first 20 s
 
 # our own upgrade preferences: survivability first, then the weapon we actually carry
 UPG_LASER = ["armor", "plating", "laser_damage", "laser_charge", "nanites", "gun_rate", "gun_damage", "gun_mag",
