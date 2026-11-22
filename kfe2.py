@@ -106,8 +106,8 @@ X_SPIN = int(os.environ.get("X_SPIN", 1))            # free-for-all: full-circle
 X_FLOW = int(os.environ.get("X_FLOW", 1))            # full path field for long trips (the capped A* dead-ends)
 # --- house-squad exploits (practice mode only; all off by default) ---
 H_THREAT = float(os.environ.get("H_THREAT", 0))   # target score: meters off per HP a mech dealt us (decaying, 4 s): kill the hitter first
-H_REAR = float(os.environ.get("H_REAR", 0))       # target score: meters off for a mech facing away (our hits do 1.5x from behind)
-H_EARS = int(os.environ.get("H_EARS", 0))         # practice: place unseen mechs by sound and look there when idle (house bots ignore sound)
+H_REAR = float(os.environ.get("H_REAR", 60))       # target score: meters off for a mech facing away (our hits do 1.5x from behind)
+H_EARS = int(os.environ.get("H_EARS", 1))         # practice: place unseen mechs by sound and look there when idle (house bots ignore sound)
 H_ARC = float(os.environ.get("H_ARC", 0))         # practice, laser in hand: back out of a lightning holder's arc inside this many m (0 = off)
 H_HIDE = int(os.environ.get("H_HIDE", 0))         # practice, nothing to fight: stand out of sight of the squad (1: instead of idling; 2: also instead of crate/drone farming)
 H_NANO = int(os.environ.get("H_NANO", 0))         # practice upgrades: repair nanites first (house hunters arrive a few s apart; regen 45 -> 72 HP/s, delay 5 -> 3.5 s)
@@ -117,10 +117,10 @@ H_VIEW = int(os.environ.get("H_VIEW", 0))         # practice, nothing to fight: 
 H_VIEW_R = float(os.environ.get("H_VIEW_R", 150))
 H_VIEW_INV = int(os.environ.get("H_VIEW_INV", 0))  # 1: the opposite, wait on an enclosed spot (fewest open sight lines)  # a hunter that sees us inside ~170 m only strafes in at ~3 m/s; one that cannot walks straight in
 H_LASERT = float(os.environ.get("H_LASERT", 0))   # practice, no laser yet: meters off the target score of a laser carrier, and engage one inside 120 m (dead mechs drop their weapons)
-H_EDGE = float(os.environ.get("H_EDGE", 0))       # practice, idle: wait this far inside the next zone's edge, on our side (house bots wander inside 0.6x its radius)
+H_EDGE = float(os.environ.get("H_EDGE", 40))       # practice, idle: wait this far inside the next zone's edge, on our side (house bots wander inside 0.6x its radius)
 H_PRECH = int(os.environ.get("H_PRECH", 0))       # practice: charge the laser at an engaged mech that just left our sight (hunters walk straight back in)
 H_CRATE = float(os.environ.get("H_CRATE", 0))     # practice, no laser: crate value (a crate drops a laser 1 time in 6) and 1.5x search radius (0 = off)
-H_FFA_LATE = int(os.environ.get("H_FFA_LATE", 0))  # after X_PRACT s with no stray death, this many deaths we did not cause mean free-for-all (house bots die to drones, the zone and each other's stray shots; 0 = X_FFA_N)
+H_FFA_LATE = int(os.environ.get("H_FFA_LATE", 3))  # after X_PRACT s with no stray death, this many deaths we did not cause mean free-for-all (house bots die to drones, the zone and each other's stray shots; 0 = X_FFA_N)
 H_PEEK = int(os.environ.get("H_PEEK", 0))         # practice: peek-fight (hide while the laser cools / gun reloads); house react timers restart
 
 # our own upgrade preferences: survivability first, then the weapon we actually carry
