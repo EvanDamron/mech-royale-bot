@@ -41,6 +41,7 @@ V_CORNER = int(os.environ.get("V_CORNER", 1)) # visual review: cornered with 2+ 
 V_REGEN = int(os.environ.get("V_REGEN", 1))   # visual review: under 50% HP and unhit 3 s, hold fire beyond 90 m (lets regen start)
 OPEN = int(os.environ.get("K2_OPEN", 0))     # opening: 1 = stand and turn a full circle first while unarmed; 2 = also no drone/crate farming while unarmed before 40 s
 V_CUBE = float(os.environ.get("V_CUBE", 0))   # visual review r2: take a cube only if it is this many m closer to us than to every mech seen in the last 5 s (0 = off)
+STAND = float(os.environ.get("K2_STAND", 0))   # laser standoff: hold the target at this range (m) against 1-3 threats (0 = off)
 V_GATE = int(os.environ.get("V_GATE", 1))     # 1 = V_CORNER and V_REGEN only in practice mode
 # Hit rates measured on real matches (18 public showdown room captures, Nov 21): gun hits / shots by range band.
 # House bots (expert + organizer probes) and team bots (other teams' entries). Laser: expert 17/119/98/31 releases.
@@ -402,7 +403,17 @@ class Bot:
         best = -1e18
         mx = my = 0.0
         blocked_side = False
-        rings = 2 if (self.P["peek"] or ISO) else 1
+        thr = []
+        if STAND and "laser" in weapons and tg.kind == "mech":
+            # visual review: the public bot deals 39% of its damage at 100-150 m (ours 22%) and takes 26% at 60-100 m
+            # (ours 43%); it holds ~100 m and lasers hunters one at a time as they come out
+            thr = [t for t in self.tracks.values() if t.kind == "mech" and self.now - t.seen < 3
+                   and hyp(t.pos[0] - x, t.pos[1] - y) < 200]
+            if not 1 <= len(thr) <= 3:
+                thr = []
+        if thr:
+            rp = STAND
+        rings = 2 if (self.P["peek"] or ISO or thr) else 1
         z = o["zone"]
         for k in range(-1, 16 * rings):
             if k >= 0:
@@ -418,7 +429,15 @@ class Bot:
                 cx, cy, dx, dy, r = x, y, 0.0, 0.0, 0.0
             cz = self.walk_z(cx, cy)
             d = hyp(tg.pos[0] - cx, tg.pos[1] - cy)
-            s = -1.1 * abs(d - rp) - r * 0.4
+            if thr:
+                s = -3.0 * abs(d - rp) - r * 0.4
+                for e in thr:
+                    if e is not tg:
+                        de = hyp(e.pos[0] - cx, e.pos[1] - cy)
+                        if de < 90:
+                            s -= 3.0 * (90 - de)
+            else:
+                s = -1.1 * abs(d - rp) - r * 0.4
             los = W.los((cx, cy, cz + mh), tc)
             if los:
                 s += 45 * want_los
@@ -1162,6 +1181,10 @@ class Bot:
                     d = hyp(c["pos"][0] - x, c["pos"][1] - y)
                     if d < r and not (V_CUBE and self.contested(c["pos"], x, y)):
                         r, bc = d, c["pos"]
+                if bc is not None and STAND and laser is not None and any(
+                        t.kind == "mech" and now - t.seen < 3 and hyp(t.pos[0] - bc[0], t.pos[1] - bc[1]) < 100
+                        for t in self.tracks.values()):
+                    bc = None     # standoff: no cube walk that takes us inside 100 m of a mech
                 if bc is not None:
                     mx, my = self.travel(me, bc[0], bc[1])
                     mode = "fight:cube"
