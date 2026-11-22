@@ -44,7 +44,7 @@ def env(name, default):
 
 
 # practice (squad) and free-for-all parameter sets
-SQUAD = dict(engage=60.0, laser_r=env("K2_LASER_R", 120.0), gun_r=85.0, light_r=28.0, max_t=240.0, hpw=0.18,
+SQUAD = dict(engage=60.0, laser_r=env("K2_LASER_R", 120.0), gun_r=100.0, light_r=28.0, max_t=240.0, hpw=0.18,
              low_bonus=200.0, stick=200.0, retreat_hp=env("K2_RETREAT", 0.38), recover_hp=0.8, loot_r=150.0,
              laser_seek=240.0, fight_loot=env("K2_FIGHT_LOOT", 70.0), farm_hp=0.5, crates_until=1e9, peek=False, ghost=False, lose_rule=True,
              lethal_k=0.7, finish=20.0)
