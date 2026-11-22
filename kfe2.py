@@ -34,6 +34,7 @@ X_EXPLORE = int(os.environ.get("X_EXPLORE", 0))      # unarmed with no weapon in
 X_BREAK = int(os.environ.get("X_BREAK", 0))          # free-for-all: break off a losing or two-sided fight and stop shooting
 X_FFA_N = int(os.environ.get("X_FFA_N", 1))           # deaths we did not cause that mean free-for-all (for testing late detection)
 X_PRACT = float(os.environ.get("X_PRACT", 20))       # no unexplained death by this time = practice match (rival bots use 20 s)
+X_LADDER = int(os.environ.get("X_LADDER", 0))         # 1: unexplained deaths needed for free-for-all rise with time: 1 before 35 s, 2 before 110 s, then 3
 X_STEALTH = int(os.environ.get("X_STEALTH", 1))      # before a free-for-all is confirmed: never sweep the aim across a mech
 X_HUSH = int(os.environ.get("X_HUSH", 1))            # before a free-for-all is confirmed: never close on a mech in view at over 3 m/s
 V_PICK = int(os.environ.get("V_PICK", 1))     # visual review: finish weapon pickups within 25 m (mid-fight too; no +space/+hush push)
@@ -1021,7 +1022,8 @@ class Bot:
         # free-for-all detection: deaths we did not cause (house squads only die to us)
         if self.start_alive is None:
             self.start_alive = o["alive"]
-        if self.start_alive - o["alive"] - self.kills >= X_FFA_N:
+        need = X_FFA_N if not X_LADDER else (1 if now < 35 else 2 if now < 110 else 3)   # late practice deaths are zone deaths
+        if self.start_alive - o["alive"] - self.kills >= need:
             self.other_dead += 1
         else:
             self.other_dead = 0
