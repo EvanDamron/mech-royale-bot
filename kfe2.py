@@ -53,6 +53,8 @@ def band(table, d):
     return table[-1]
 
 
+RESET = float(os.environ.get("K2_RESET", 0))   # practice: after a kill, break line of sight for this many seconds before re-engaging
+ISO = float(os.environ.get("K2_ISO", 0))   # fight spots: penalty per other mech with a line on the spot (0 = the old 30, nearest 3 in view)
 PLAN = float(os.environ.get("K2_PLAN", 0))   # HP of expected damage worth one meter of progress, inverted (0 = off)
 X_SPIN = int(os.environ.get("X_SPIN", 1))            # free-for-all: full-circle scan whenever the torso is free, also while walking
 X_FLOW = int(os.environ.get("X_FLOW", 1))            # full path field for long trips (the capped A* dead-ends)
@@ -204,6 +206,7 @@ class Bot:
         self.stick_at = -100.0
         self.cover_goal = None
         self.cover_at = -100.0
+        self.reset_until = -100.0
         self.loot_id = None
         self.loot_since = 0.0
         self.bad = {}
@@ -384,12 +387,16 @@ class Bot:
             d = hyp(c["pos"][0] - x, c["pos"][1] - y)
             if d < 40 and abs(c["pos"][2] - me["pos"][2]) < 4 and (cube is None or d < cube[0]):
                 cube = (d, c["pos"])
-        others = sorted((e for e in seen if e is not tg and hyp(e.pos[0] - x, e.pos[1] - y) < 170),
-                        key=lambda e: hyp(e.pos[0] - x, e.pos[1] - y))[:3]
+        pool = seen
+        if ISO:
+            # practice review: half the damage we take comes from mechs we are not shooting; fight where only the target sees us
+            pool = [t for t in self.tracks.values() if t.kind == "mech" and self.now - t.seen < 6]
+        others = sorted((e for e in pool if e is not tg and hyp(e.pos[0] - x, e.pos[1] - y) < (200 if ISO else 170)),
+                        key=lambda e: hyp(e.pos[0] - x, e.pos[1] - y))[:5 if ISO else 3]
         best = -1e18
         mx = my = 0.0
         blocked_side = False
-        rings = 2 if self.P["peek"] else 1
+        rings = 2 if (self.P["peek"] or ISO) else 1
         z = o["zone"]
         for k in range(-1, 16 * rings):
             if k >= 0:
@@ -412,7 +419,7 @@ class Bot:
             body = (cx, cy, cz + 9 * 0.6)
             for e in others:
                 if W.los(self.eye(e), body):
-                    s -= 30
+                    s -= ISO or 30
             s -= self.zone_penalty(z, cx, cy, self.now)
             if cube is not None:
                 s += 1.5 * (cube[0] - hyp(cube[1][0] - cx, cube[1][1] - cy))
@@ -886,6 +893,7 @@ class Bot:
                     if t is not None:
                         t.hit_me = now
             elif et == "kill":
+                self.reset_until = now + RESET
                 self.kills += 1
                 self.tracks.pop(e.get("target"), None)
         # free-for-all detection: deaths we did not cause (house squads only die to us)
@@ -1015,6 +1023,10 @@ class Bot:
             if losing:
                 self.lose_at = now
             self.retreat = self.lose_at > 0 and now - self.lose_at < 1.5
+        if RESET and self.prac_on and now < self.reset_until and not finishing:
+            # practice review: each kill brings another hunter and HP per kill doubles with each extra attacker;
+            # get out of sight before the next one arrives so they come to us one at a time
+            self.retreat = True
 
         # A rival bot keeps fighting only while we are inside 60 m, hit it in the last 4 s, or sit under 350 HP inside 120 m.
         # So a fight we are losing, or one with two of them, ends if we leave and hold fire.
