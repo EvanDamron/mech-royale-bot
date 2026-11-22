@@ -114,7 +114,13 @@ H_NANO = int(os.environ.get("H_NANO", 0))         # practice upgrades: repair na
 H_HOLD = float(os.environ.get("H_HOLD", 0))       # practice: below this HP fraction and unhit 3 s, hold fire on targets beyond H_HOLD_R (regen needs no damage dealt either)
 H_HOLD_R = float(os.environ.get("H_HOLD_R", 90))
 H_VIEW = int(os.environ.get("H_VIEW", 0))         # practice, nothing to fight: wait on an open spot (1: instead of idling; 2: also instead of crate/drone farming)
-H_VIEW_R = float(os.environ.get("H_VIEW_R", 150))  # a hunter that sees us inside ~170 m only strafes in at ~3 m/s; one that cannot walks straight in
+H_VIEW_R = float(os.environ.get("H_VIEW_R", 150))
+H_VIEW_INV = int(os.environ.get("H_VIEW_INV", 0))  # 1: the opposite, wait on an enclosed spot (fewest open sight lines)  # a hunter that sees us inside ~170 m only strafes in at ~3 m/s; one that cannot walks straight in
+H_LASERT = float(os.environ.get("H_LASERT", 0))   # practice, no laser yet: meters off the target score of a laser carrier, and engage one inside 120 m (dead mechs drop their weapons)
+H_EDGE = float(os.environ.get("H_EDGE", 0))       # practice, idle: wait this far inside the next zone's edge, on our side (house bots wander inside 0.6x its radius)
+H_PRECH = int(os.environ.get("H_PRECH", 0))       # practice: charge the laser at an engaged mech that just left our sight (hunters walk straight back in)
+H_CRATE = float(os.environ.get("H_CRATE", 0))     # practice, no laser: crate value (a crate drops a laser 1 time in 6) and 1.5x search radius (0 = off)
+H_FFA_LATE = int(os.environ.get("H_FFA_LATE", 0))  # after X_PRACT s with no stray death, this many deaths we did not cause mean free-for-all (house bots die to drones, the zone and each other's stray shots; 0 = X_FFA_N)
 H_PEEK = int(os.environ.get("H_PEEK", 0))         # practice: peek-fight (hide while the laser cools / gun reloads); house react timers restart
 
 # our own upgrade preferences: survivability first, then the weapon we actually carry
@@ -636,7 +642,7 @@ class Bot:
                 if not W.los((px, py, ez), (bx, by, self.walk_z(bx, by) + 4.5)):
                     break
                 n += 1
-        return n
+        return 32 - n if H_VIEW_INV else n
 
     def view_spot(self, o):
         """Pick (every 6 s) an open spot within ~70 m inside the next zone: hunters that see us from afar slow down."""
@@ -1038,9 +1044,10 @@ class Bot:
         crate_any = X_EXPLORE and unarmed and not self.prac_on and not danger
         no_farm = OPEN >= 2 and unarmed and now < 40   # opening review: 14 s farming drones unarmed while a laser lay 104 m away
         if ((hp_frac > P["farm_hp"] and not danger and now < P["crates_until"]) or crate_any) and not no_farm:
+            no_laser = H_CRATE and self.prac_on and not any(w and w["kind"] == "laser" for w in slots)
             for c in self.crates.values():
-                if hyp(c["pos"][0] - x, c["pos"][1] - y) < (150.0 if crate_any else P["loot_r"]):
-                    consider("crate", c["id"], c["pos"], 110.0 if crate_any else crate_base * 0.6)
+                if hyp(c["pos"][0] - x, c["pos"][1] - y) < (150.0 if crate_any else P["loot_r"] * (1.5 if no_laser else 1.0)):
+                    consider("crate", c["id"], c["pos"], 110.0 if crate_any else (H_CRATE if no_laser else crate_base * 0.6))
             if me.get("cubes", 0) < self.cfg["cubes"]["stat_cap"]:
                 for n in self.npcs.values():
                     if now - n.seen < 12 and hyp(n.pos[0] - x, n.pos[1] - y) < P["loot_r"]:
@@ -1176,7 +1183,9 @@ class Bot:
         # free-for-all detection: deaths we did not cause (house squads only die to us)
         if self.start_alive is None:
             self.start_alive = o["alive"]
-        if X_LADDER >= 2:
+        if H_FFA_LATE and now > X_PRACT:
+            need = H_FFA_LATE     # after the 20 s practice check, this many stray deaths mean free-for-all
+        elif X_LADDER >= 2:
             need = 1 if now < 35 else (X_LADDER + 1 if now < 110 else 2 * X_LADDER + 1)   # 2: 1 / 3 / 5, 3: 1 / 4 / 7
         else:
             need = X_FFA_N if not X_LADDER else (1 if now < 35 else 2 if now < 110 else 3)   # late practice deaths are zone deaths
@@ -1313,6 +1322,8 @@ class Bot:
                 t.engage = True
             elif aimed and t.dist < 190:
                 t.engage = True
+            elif H_LASERT and self.prac_on and laser is None and "laser" in (t.weapons or ()) and t.los and t.dist < 120:
+                t.engage = True
             if t.engage and not t.los and t.dist < P["max_t"] and (hidden is None or t.dist < hidden.dist):
                 hidden = t
             if not t.engage or not t.los or t.dist > P["max_t"]:
@@ -1328,6 +1339,8 @@ class Bot:
                 s -= 15
             if H_THREAT and self.prac_on and t.thr > 0:
                 s -= H_THREAT * t.thr * math.exp(-(now - t.thr_t) / 4.0)
+            if H_LASERT and self.prac_on and laser is None and "laser" in (t.weapons or ()):
+                s -= H_LASERT
             if H_REAR and self.prac_on and abs(wrap(t.aim[0] - math.atan2(y - t.pos[1], x - t.pos[0]))) > 1.75:
                 s -= H_REAR
             if s < best_s:
@@ -1645,6 +1658,16 @@ class Bot:
                 farm = None
                 farm_pos = None
                 mode = "hide:squad"
+        if H_EDGE and self.prac_on and not late and foe is None and mode in ("idle", "zone-walk") and z["next_radius"] > 3 * H_EDGE:
+            # the idle squad crowds the middle of the next circle and shoots inside 150 m: keep to its rim, on our side
+            nc, nr = z["next_center"], z["next_radius"]
+            dc = hyp(x - nc[0], y - nc[1])
+            if dc > 1 and dc < nr - H_EDGE - 6:
+                ex_, ey_ = nc[0] + (x - nc[0]) / dc * (nr - H_EDGE), nc[1] + (y - nc[1]) / dc * (nr - H_EDGE)
+                mx, my = self.travel(me, ex_, ey_)
+                farm = None
+                farm_pos = None
+                mode = "edge"
         if H_VIEW and self.prac_on and not late and foe is None and (
                 mode in ("idle", "zone-walk") or (H_VIEW >= 2 and mode in ("loot:crate", "loot:npc"))):
             # house hunters walk straight in until they see us, then strafe in slowly from ~170 m: wait where they see us early,
@@ -1970,10 +1993,13 @@ class Bot:
         if H_HOLD and self.prac_on and target is not None and hp_frac < H_HOLD and now - self.last_hurt > 3 \
                 and target.dist > H_HOLD_R and target.hp > 0.3 * target.max_hp:
             fire = [False, False]
-        if target is None and foe is not None:
+        pre = foe
+        if H_PRECH and self.prac_on and target is None and pre is None and hidden is not None and now - hidden.seen < 2.0:
+            pre = hidden
+        if target is None and pre is not None:
             # pre-charge the laser before the target steps back into view
             for i, w in enumerate(slots[:2]):
-                if w and w["kind"] == "laser" and w["cooldown"] <= 0.05 and foe.dist < w["stats"]["range"] \
+                if w and w["kind"] == "laser" and w["cooldown"] <= 0.05 and pre.dist < w["stats"]["range"] \
                         and w.get("charge", 0) < w["stats"]["charge"] + w["stats"].get("hold_s", 2) - 0.35:
                     fire[i] = True
         if not have_aim:
