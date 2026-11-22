@@ -899,7 +899,7 @@ class Bot:
             self.retreat = False
         if P["lose_rule"]:
             near = sum(1 for t in seen if t.seen == now and t.dist < 160)
-            losing = (near >= 2 and hp_frac < 0.55) or (near >= 3 and hp_frac < 0.8)
+            losing = (near >= 2 and hp_frac < 0.65) or (near >= 3 and hp_frac < 0.8)
             if target is not None:
                 tf = target.hp / max(1.0, target.max_hp)
                 if hp_frac < 0.35 and tf > hp_frac + 0.1:
