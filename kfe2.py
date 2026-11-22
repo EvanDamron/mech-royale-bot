@@ -43,6 +43,7 @@ X_ODDS_HI = float(os.environ.get("X_ODDS_HI", 1.25)) # above this, open with the
 X_STRIKE = float(os.environ.get("X_STRIKE", 110))
 X_EARS = int(os.environ.get("X_EARS", 0))            # free-for-all: place unseen mechs from what we hear (look there, keep clear of them)
 X_ODDS_FFA = int(os.environ.get("X_ODDS_FFA", 1))    # 1: the odds rule waits for the first death we did not cause
+X_ODDS_ARM = int(os.environ.get("X_ODDS_ARM", 0))    # 1: ...and for a laser seen hitting a mech other than us (practice squads never shoot each other)
 X_RANGE = float(os.environ.get("X_RANGE", 0))        # free-for-all: gun and laser fighting range (0 = keep 85 m)
 X_SPIN = int(os.environ.get("X_SPIN", 1))            # free-for-all: full-circle scan whenever the torso is free, also while walking
 X_FLOW = int(os.environ.get("X_FLOW", 1))            # full path field for long trips (the capped A* dead-ends)
@@ -221,6 +222,7 @@ class Bot:
         self.refuse_until = 0.0
         self.scan_dir = 1.0
         self.heard = None       # (bearing, dist bucket, time) of the latest loud sound
+        self.fight_seen = False  # a laser from one mech ended on another, far from us
         self.ghosts = []        # unexplained mech sounds: (time, x, y, bearing, kind, est range)
         self.look = None        # (bearing, until): turn the torso toward an unexplained sound
 
@@ -795,6 +797,23 @@ class Bot:
         upd(self.crates, o["crates"])
         upd(self.cubes, o["cubes"])
         upd(self.pickups, o["pickups"])
+        if X_ODDS_ARM and not self.fight_seen:
+            mx_, my_ = o["self"]["pos"][0], o["self"]["pos"][1]
+            for bm in o.get("beams", ()):
+                by, path = bm.get("by"), bm.get("path") or []
+                if bm.get("kind") != "laser" or by is None or by >= 100 or by == self.slot or len(path) < 2:
+                    continue
+                (ax, ay), (bx, by_) = path[0][:2], path[-1][:2]
+                vx, vy = bx - ax, by_ - ay
+                L2 = vx * vx + vy * vy
+                u = 0.0 if L2 < 1e-6 else max(0.0, min(1.0, ((mx_ - ax) * vx + (my_ - ay) * vy) / L2))
+                if hyp(ax + u * vx - mx_, ay + u * vy - my_) < 15 or \
+                        abs(wrap(math.atan2(vy, vx) - math.atan2(my_ - ay, mx_ - ax))) < 0.35:
+                    continue      # a shot at us (aim error under 20 degrees) that hit someone behind us says nothing
+                for t in self.tracks.values():
+                    if t.kind == "mech" and t.id != by and now - t.seen < 1.0 and hyp(t.pos[0] - bx, t.pos[1] - by_) < 5:
+                        self.fight_seen = True
+                        break
         for snd in o.get("sounds", ()):
             if snd.get("kind") in ("gun", "laser", "lightning", "mortar", "crate", "step", "boost"):
                 self.heard = (snd["bearing"], snd.get("dist"), now - snd.get("age", 0.0))
@@ -909,7 +928,7 @@ class Bot:
         target = hidden = None
         best_s = 1e18
         refuse = []
-        odds_on = X_ODDS and P["ghost"] and not late and o["alive"] > 3 and (self.ffa or not X_ODDS_FFA)
+        odds_on = X_ODDS and P["ghost"] and not late and o["alive"] > 3 and (self.ffa or not X_ODDS_FFA) and (self.fight_seen or not X_ODDS_ARM)
         crowd_near = sum(1 for t in self.tracks.values() if now - t.seen < 5 and t.dist < 120) if odds_on else 0
         for t in self.tracks.values():
             if now - t.seen > 2.5:
