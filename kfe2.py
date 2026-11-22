@@ -93,7 +93,7 @@ D_CUBEV = float(os.environ.get("D_CUBEV", 0))
 # practice: for 25 s after our kill, the victim's cubes (they drop where it died) are collected from up to this far, mid-fight
 # too, and the standoff's 100 m no-cube-walk rule shrinks to 50 m for them (0 = off). The public bot reaches its kill spot on
 # 67%/33%/9% of kills under 60/60-100/100+ m, we on 48%/17%/3%: 2.1 cubes per kill against our 1.3.
-D_KCUBE = float(os.environ.get("D_KCUBE", 0))
+D_KCUBE = float(os.environ.get("D_KCUBE", 110))
 # practice: weapon pickups on rooftops are loot too (rulebook: a quarter of floor weapons and crates sit on roofs; we skipped
 # every one): walk to the building, then jump and jet up to the item (100 energy climbs ~60 m). 1 = in practice rules only,
 # 2 = also under free-for-all rules (that includes the first 20 s of every match, before practice is detected)
@@ -1497,7 +1497,7 @@ class Bot:
                     if V_CUBE and self.contested(c["pos"], x, y):
                         continue
                     if self.kcube(c):
-                        if d < kr:
+                        if d < kr and hp_frac > 0.3:     # under 30% HP our kill's pile waits
                             kr, kc = d, c["pos"]       # D_KCUBE: our kill's cubes first, from further out
                     elif d < r:
                         r, bc = d, c["pos"]
