@@ -1572,7 +1572,7 @@ class Bot:
                 self.stuck_since = -1
                 self.path = None
                 jump = True
-                if F_STUCK and not self.prac_on:
+                if F_STUCK and self.ffa:      # confirmed free-for-all only: the first 20 s of practice are not practice mode yet
                     # review: 20 s pressed against a building outside the zone, 50 s on a bridge over cubes;
                     # a random half-second step does not get past a wall, a jet over it does (100 energy climbs ~60 m)
                     self.stuck_hits = [h for h in self.stuck_hits if now - h < 10] + [now]
