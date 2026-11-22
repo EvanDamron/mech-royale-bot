@@ -34,6 +34,7 @@ X_EXPLORE = int(os.environ.get("X_EXPLORE", 0))      # unarmed with no weapon in
 X_BREAK = int(os.environ.get("X_BREAK", 0))          # free-for-all: break off a losing or two-sided fight and stop shooting
 X_FFA_N = int(os.environ.get("X_FFA_N", 1))           # deaths we did not cause that mean free-for-all (for testing late detection)
 X_PRACT = float(os.environ.get("X_PRACT", 20))       # no unexplained death by this time = practice match (rival bots use 20 s)
+X_LADDER = int(os.environ.get("X_LADDER", 0))         # 1: unexplained deaths needed for free-for-all rise with time: 1 before 35 s, 2 before 110 s, then 3
 X_STEALTH = int(os.environ.get("X_STEALTH", 1))      # before a free-for-all is confirmed: never sweep the aim across a mech
 X_HUSH = int(os.environ.get("X_HUSH", 1))            # before a free-for-all is confirmed: never close on a mech in view at over 3 m/s
 V_PICK = int(os.environ.get("V_PICK", 1))     # visual review: finish weapon pickups within 25 m (mid-fight too; no +space/+hush push)
@@ -75,7 +76,7 @@ X_RANGE = float(os.environ.get("X_RANGE", 0))        # free-for-all: gun and las
 F_DROP = int(os.environ.get("F_DROP", 0))     # drops: wait ~90 m out, walk in to arrive as it lands; 1 also skips when unarmed/final 3/stronger mech near
 F_RANGE = int(os.environ.get("F_RANGE", 0))   # lightning vs laser at 30-70 m: close in or hide; laser vs lightning: stay out of its arc
 F_ARM = int(os.environ.get("F_ARM", 0))       # unarmed, free-for-all confirmed, walking to a weapon: keep only 70 m from mechs
-SALT = int(os.environ.get("K2_SALT", 9))     # salt for the tie-break and strafe random draws (no strategy effect)
+SALT = int(os.environ.get("K2_SALT", 11))     # salt for the tie-break and strafe random draws (no strategy effect)
 F_STUCK = int(os.environ.get("F_STUCK", 1))   # 3 unstuck triggers in 10 s: jump and jet toward where we were going
 # practice: the F_STUCK escape also in practice, plus a trigger for travel that makes no progress (sliding along a wall,
 # circling a cube on a ledge) which the low-speed test misses; D_STUCK = seconds without 5 m of net progress (0 = off)
@@ -1167,7 +1168,8 @@ class Bot:
         # free-for-all detection: deaths we did not cause (house squads only die to us)
         if self.start_alive is None:
             self.start_alive = o["alive"]
-        if self.start_alive - o["alive"] - self.kills >= X_FFA_N:
+        need = X_FFA_N if not X_LADDER else (1 if now < 35 else 2 if now < 110 else 3)   # late practice deaths are zone deaths
+        if self.start_alive - o["alive"] - self.kills >= need:
             self.other_dead += 1
         else:
             self.other_dead = 0
