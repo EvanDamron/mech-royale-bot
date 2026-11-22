@@ -23,7 +23,7 @@ PARTIAL_COVER = bool(int(os.environ.get("K2_PARTIAL", 0)))  # fewest-watchers co
 WITHDRAW = bool(int(os.environ.get("K2_WITHDRAW", 1)))       # swamped, no cover, no target: back away instead of standing
 USE_DROPS = bool(int(os.environ.get("K2_DROPS", 0)))       # go for supply drops (league: costs placement, off)
 CROWD_N = int(os.environ.get("K2_CROWD", 3))                               # this many engaged/close enemies in view means retreat
-UPG_ORDER = os.environ.get("K2_UPG", "survive")              # "survive" or "damage"
+UPG_ORDER = os.environ.get("K2_UPG", "damage")              # "survive" or "damage"
 OPENING_HUNT = bool(int(os.environ.get("K2_OPENING", 0)))   # walk far for a laser in the first 20 s
 # --- free-for-all extensions from the league reviews (strategy-review/league); 0 switches each one off ---
 X_SEEK = float(os.environ.get("X_SEEK", 250))        # unarmed: walk this far for a laser or lightning (rival bots stop at 90 m)
