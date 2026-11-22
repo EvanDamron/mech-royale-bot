@@ -36,9 +36,9 @@ X_FFA_N = int(os.environ.get("X_FFA_N", 1))           # deaths we did not cause 
 X_PRACT = float(os.environ.get("X_PRACT", 20))       # no unexplained death by this time = practice match (rival bots use 20 s)
 X_STEALTH = int(os.environ.get("X_STEALTH", 1))      # before a free-for-all is confirmed: never sweep the aim across a mech
 X_HUSH = int(os.environ.get("X_HUSH", 1))            # before a free-for-all is confirmed: never close on a mech in view at over 3 m/s
-V_PICK = int(os.environ.get("V_PICK", 0))     # visual review: finish weapon pickups within 25 m (mid-fight too; no +space/+hush push)
-V_CORNER = int(os.environ.get("V_CORNER", 0)) # visual review: cornered with 2+ threats -> withdraw instead of trading in place
-V_REGEN = int(os.environ.get("V_REGEN", 0))   # visual review: under 50% HP and unhit 3 s, hold fire beyond 90 m (lets regen start)
+V_PICK = int(os.environ.get("V_PICK", 1))     # visual review: finish weapon pickups within 25 m (mid-fight too; no +space/+hush push)
+V_CORNER = int(os.environ.get("V_CORNER", 1)) # visual review: cornered with 2+ threats -> withdraw instead of trading in place
+V_REGEN = int(os.environ.get("V_REGEN", 1))   # visual review: under 50% HP and unhit 3 s, hold fire beyond 90 m (lets regen start)
 V_GATE = int(os.environ.get("V_GATE", 1))     # 1 = V_CORNER and V_REGEN only in practice mode
 # Hit rates measured on real matches (18 public showdown room captures, Nov 21): gun hits / shots by range band.
 # House bots (expert + organizer probes) and team bots (other teams' entries). Laser: expert 17/119/98/31 releases.
