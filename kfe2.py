@@ -94,6 +94,7 @@ H_LASERT = float(os.environ.get("H_LASERT", 0))   # practice, no laser yet: mete
 H_EDGE = float(os.environ.get("H_EDGE", 0))       # practice, idle: wait this far inside the next zone's edge, on our side (house bots wander inside 0.6x its radius)
 H_PRECH = int(os.environ.get("H_PRECH", 0))       # practice: charge the laser at an engaged mech that just left our sight (hunters walk straight back in)
 H_CRATE = float(os.environ.get("H_CRATE", 0))     # practice, no laser: crate value (a crate drops a laser 1 time in 6) and 1.5x search radius (0 = off)
+H_FFA_LATE = int(os.environ.get("H_FFA_LATE", 0))  # after X_PRACT s with no stray death, this many deaths we did not cause mean free-for-all (house bots die to drones, the zone and each other's stray shots; 0 = X_FFA_N)
 H_PEEK = int(os.environ.get("H_PEEK", 0))         # practice: peek-fight (hide while the laser cools / gun reloads); house react timers restart
 
 # our own upgrade preferences: survivability first, then the weapon we actually carry
@@ -1088,7 +1089,8 @@ class Bot:
         # free-for-all detection: deaths we did not cause (house squads only die to us)
         if self.start_alive is None:
             self.start_alive = o["alive"]
-        if self.start_alive - o["alive"] - self.kills >= X_FFA_N:
+        n_need = H_FFA_LATE if (H_FFA_LATE and now > X_PRACT) else X_FFA_N
+        if self.start_alive - o["alive"] - self.kills >= n_need:
             self.other_dead += 1
         else:
             self.other_dead = 0
