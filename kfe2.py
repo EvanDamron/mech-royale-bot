@@ -36,6 +36,10 @@ X_FFA_N = int(os.environ.get("X_FFA_N", 1))           # deaths we did not cause 
 X_PRACT = float(os.environ.get("X_PRACT", 20))       # no unexplained death by this time = practice match (rival bots use 20 s)
 X_STEALTH = int(os.environ.get("X_STEALTH", 1))      # before a free-for-all is confirmed: never sweep the aim across a mech
 X_HUSH = int(os.environ.get("X_HUSH", 1))            # before a free-for-all is confirmed: never close on a mech in view at over 3 m/s
+V_PICK = int(os.environ.get("V_PICK", 0))     # visual review: finish weapon pickups within 25 m (mid-fight too; no +space/+hush push)
+V_CORNER = int(os.environ.get("V_CORNER", 0)) # visual review: cornered with 2+ threats -> withdraw instead of trading in place
+V_REGEN = int(os.environ.get("V_REGEN", 0))   # visual review: under 50% HP and unhit 3 s, hold fire beyond 90 m (lets regen start)
+V_GATE = int(os.environ.get("V_GATE", 1))     # 1 = V_CORNER and V_REGEN only in practice mode
 # Hit rates measured on real matches (18 public showdown room captures, Nov 21): gun hits / shots by range band.
 # House bots (expert + organizer probes) and team bots (other teams' entries). Laser: expert 17/119/98/31 releases.
 HIT_RANGES = (40, 60, 80, 100, 150, 1e9)
@@ -696,6 +700,15 @@ class Bot:
             t = max(0.0, d - 3) / speed
         return math.atan2(py - muzzle[1], px - muzzle[0]), math.atan2(pz - muzzle[2], hyp(px - muzzle[0], py - muzzle[1]))
 
+    def near_pick(self, me, slots, x, y, zf, r=25.0):
+        """Closest wanted weapon pickup within r m at our level (visual review: fights began 5-15 m from a laser)."""
+        best = None
+        for p in self.pickups.values():
+            d = hyp(p["pos"][0] - x, p["pos"][1] - y)
+            if d < r and abs(p["pos"][2] - zf) < 3.5 and self.want_pickup(me, p.get("kind"), slots):
+                r, best = d, p["pos"]
+        return best
+
     def want_pickup(self, me, kind, slots):
         if kind == "gun":
             return slots[0] is None
@@ -1073,8 +1086,16 @@ class Bot:
                 boost = me["energy"] > 10 and (mx or my)
                 mode = "cover"
             elif target is not None:
-                mx, my = self.fight_move(o, target, seen, 1, weapons)
-                mode = "cornered"
+                w = None
+                if V_CORNER and (self.prac_on or not V_GATE) and sum(1 for t in seen if t.seen == now and t.dist < 160) >= 2:
+                    w = self.withdraw(o, seen)
+                if w is not None:
+                    mx, my = w
+                    boost = me["energy"] > 25
+                    mode = "withdraw"
+                else:
+                    mx, my = self.fight_move(o, target, seen, 1, weapons)
+                    mode = "cornered"
             else:
                 mx, my = self.travel(me, zgx, zgy)
                 mode = "flee"
@@ -1119,7 +1140,11 @@ class Bot:
             if light is not None and foe.dist > 50 and me["energy"] > 55 and want_los > 0:
                 boost = True
             mode = "fight"
-            if P["fight_loot"]:
+            pk = self.near_pick(me, slots, x, y, zf) if V_PICK else None
+            if pk is not None:
+                mx, my = self.travel(me, pk[0], pk[1])
+                mode = "fight:pick"
+            elif P["fight_loot"]:
                 r = P["fight_loot"] * (0.57 if hp_frac <= 0.5 else 1.0)
                 bc = None
                 for c in self.cubes.values():
@@ -1223,7 +1248,8 @@ class Bot:
                 boost = me["energy"] > 5
                 mode = "break"
         # free-for-all spacing: rival bots start a fight at 60 m. Unarmed we lose it (league: dealt/taken 0.38), so keep clear.
-        if not self.prac_on and mode not in ("unstuck", "zone", "cover", "hide", "fight", "fight:cube", "cornered") \
+        close_pick = V_PICK and mode == "loot:pickup" and self.near_pick(me, slots, x, y, zf) is not None
+        if not self.prac_on and not close_pick and mode not in ("unstuck", "zone", "cover", "hide", "fight", "fight:cube", "fight:pick", "cornered") \
                 and not late:
             R = X_UNARMED if slots[1] is None else X_AVOID
             if R > 0:
@@ -1261,8 +1287,8 @@ class Bot:
                     farm = None
                     farm_pos = None
                     mode += "+space"
-        if X_HUSH and not self.prac_on and now > 19 and (not self.ffa or (self.start_alive - o["alive"] < 2 and now < 60)) \
-                and mode not in ("unstuck", "zone", "cover", "hide", "fight", "fight:cube", "cornered", "break"):
+        if X_HUSH and not self.prac_on and not close_pick and now > 19 and (not self.ffa or (self.start_alive - o["alive"] < 2 and now < 60)) \
+                and mode not in ("unstuck", "zone", "cover", "hide", "fight", "fight:cube", "fight:pick", "cornered", "break"):
             # from 20 s until the first death every rival bot attacks whatever closes on it at over 3 m/s inside 180 m
             # (review: 4 of 10 deaths before 40 s were lasers from 110-120 m while we ran for a pickup). Its own walk
             # toward us counts, so the limit is on the relative speed: slow down, sidestep or back away to stay under it.
@@ -1444,6 +1470,9 @@ class Bot:
                         ey = abs(wrap(hy - me["aim"][0]))
                         ep = abs(hp - me["aim"][1])
                         fire[i] = not (ey < tol_y * 0.9 and ep < tol_p)
+        if V_REGEN and (self.prac_on or not V_GATE) and target is not None and hp_frac < 0.5 and now - self.last_hurt > 3 \
+                and target.dist > 90 and target.hp > 0.3 * target.max_hp:
+            fire = [False, False]
         if target is None and foe is not None:
             # pre-charge the laser before the target steps back into view
             for i, w in enumerate(slots[:2]):
