@@ -75,7 +75,7 @@ X_RANGE = float(os.environ.get("X_RANGE", 0))        # free-for-all: gun and las
 F_DROP = int(os.environ.get("F_DROP", 0))     # drops: wait ~90 m out, walk in to arrive as it lands; 1 also skips when unarmed/final 3/stronger mech near
 F_RANGE = int(os.environ.get("F_RANGE", 0))   # lightning vs laser at 30-70 m: close in or hide; laser vs lightning: stay out of its arc
 F_ARM = int(os.environ.get("F_ARM", 0))       # unarmed, free-for-all confirmed, walking to a weapon: keep only 70 m from mechs
-F_STUCK = int(os.environ.get("F_STUCK", 0))   # 3 unstuck triggers in 10 s: jump and jet toward where we were going
+F_STUCK = int(os.environ.get("F_STUCK", 1))   # 3 unstuck triggers in 10 s: jump and jet toward where we were going
 X_SPIN = int(os.environ.get("X_SPIN", 1))            # free-for-all: full-circle scan whenever the torso is free, also while walking
 X_FLOW = int(os.environ.get("X_FLOW", 1))            # full path field for long trips (the capped A* dead-ends)
 
