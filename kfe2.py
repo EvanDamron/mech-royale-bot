@@ -41,7 +41,7 @@ V_CORNER = int(os.environ.get("V_CORNER", 1)) # visual review: cornered with 2+ 
 V_REGEN = int(os.environ.get("V_REGEN", 1))   # visual review: under 50% HP and unhit 3 s, hold fire beyond 90 m (lets regen start)
 OPEN = int(os.environ.get("K2_OPEN", 0))     # opening: 1 = stand and turn a full circle first while unarmed; 2 = also no drone/crate farming while unarmed before 40 s
 V_CUBE = float(os.environ.get("V_CUBE", 0))   # visual review r2: take a cube only if it is this many m closer to us than to every mech seen in the last 5 s (0 = off)
-STAND = float(os.environ.get("K2_STAND", 0))   # laser standoff: hold the target at this range (m) against 1-3 threats (0 = off)
+STAND = float(os.environ.get("K2_STAND", 125))   # laser standoff: hold the target at this range (m) against 1-3 threats (0 = off)
 V_GATE = int(os.environ.get("V_GATE", 1))     # 1 = V_CORNER and V_REGEN only in practice mode
 # Hit rates measured on real matches (18 public showdown room captures, Nov 21): gun hits / shots by range band.
 # House bots (expert + organizer probes) and team bots (other teams' entries). Laser: expert 17/119/98/31 releases.
