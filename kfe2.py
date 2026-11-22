@@ -1,9 +1,9 @@
-"""Kentucky Fried Evan bot, version 2: our own Python implementation.
+"""Kentucky Fried Evan bot, version 2.
 
-Ideas studied from giddygiddyboy's MIT bot (see vendor/giddy) and rebuilt here in our own code on our map model
-(worldmap.py): track-based engagement rules, crowd/losing retreat to cover, peek-aware fight positioning, bullet and
-laser dodging, latency-aware lead, lethal early laser release, cube grabs during fights, utility-based looting, and a
-separate free-for-all policy once the match turns out not to be practice.
+Track-based engagement rules, crowd/losing retreat to cover (with a fewest-watchers fallback and a withdraw step when
+outnumbered in the open), peek-aware fight positioning, bullet and charging-laser dodging, latency-aware lead, lethal
+early laser release, cube grabs during fights, utility-based looting with a reachability check, and a separate
+free-for-all policy once the match turns out not to be practice. Built on our own map model (worldmap.py).
 """
 import math
 import os
@@ -18,18 +18,25 @@ from worldmap import World  # noqa: E402
 TAU = 2 * math.pi
 LAT = 0.075          # our action lands about this long after the observation
 DEBUG = bool(int(os.environ.get("KFE_DEBUG", 0)))
-PARTIAL_COVER = bool(int(os.environ.get("K2_PARTIAL", 0)))  # no full cover: go where the fewest threats can see us
+PARTIAL_COVER = bool(int(os.environ.get("K2_PARTIAL", 0)))  # fewest-watchers cover fallback (league: hurts, off)
 WITHDRAW = bool(int(os.environ.get("K2_WITHDRAW", 1)))       # swamped, no cover, no target: back away instead of standing
 USE_DROPS = bool(int(os.environ.get("K2_DROPS", 0)))       # go for supply drops (league: costs placement, off)
-OPENING_HUNT = bool(int(os.environ.get("K2_OPENING", 0)))   # walk far for a laser in the first 20 s (giddy does not)
+CROWD_N = int(os.environ.get("K2_CROWD", 3))                               # this many engaged/close enemies in view means retreat
+UPG_ORDER = os.environ.get("K2_UPG", "survive")              # "survive" or "damage"
+OPENING_HUNT = bool(int(os.environ.get("K2_OPENING", 0)))   # walk far for a laser in the first 20 s
 
-UPG_LASER = ["plating", "armor", "laser_damage", "laser_charge", "nanites", "gun_damage", "gun_rate",
-             "lightning_efficiency", "lightning_range", "servos", "gun_mag", "gun_velocity", "gyros", "lightning_chain",
-             "reactor", "capacitor", "mortar_reload", "mortar_splash", "mortar_velocity", "sensors", "jets",
-             "laser_pierce"]
-UPG_BASE = ["plating", "armor", "gun_damage", "nanites", "gun_rate", "lightning_efficiency", "lightning_range",
-            "laser_damage", "servos", "laser_charge", "gun_mag", "gun_velocity", "gyros", "lightning_chain", "reactor",
-            "capacitor", "mortar_reload", "mortar_splash", "mortar_velocity", "sensors", "jets", "laser_pierce"]
+# our own upgrade preferences: survivability first, then the weapon we actually carry
+UPG_LASER = ["armor", "plating", "laser_damage", "laser_charge", "nanites", "gun_rate", "gun_damage", "gun_mag",
+             "lightning_efficiency", "lightning_range", "gyros", "servos", "reactor", "capacitor", "jets", "gun_velocity",
+             "sensors", "lightning_chain", "laser_pierce", "mortar_reload", "mortar_splash", "mortar_velocity"]
+UPG_BASE = ["armor", "plating", "nanites", "gun_rate", "gun_damage", "gun_mag", "lightning_efficiency", "lightning_range",
+            "laser_damage", "laser_charge", "gyros", "servos", "reactor", "capacitor", "jets", "gun_velocity", "sensors",
+            "lightning_chain", "laser_pierce", "mortar_reload", "mortar_splash", "mortar_velocity"]
+
+
+UPG_DAMAGE = ["laser_damage", "gun_damage", "gun_rate", "laser_charge", "armor", "plating", "lightning_efficiency",
+              "gun_mag", "nanites", "lightning_range", "gyros", "servos", "reactor", "capacitor", "jets", "gun_velocity",
+              "sensors", "lightning_chain", "laser_pierce", "mortar_reload", "mortar_splash", "mortar_velocity"]
 
 
 def env(name, default):
@@ -38,8 +45,8 @@ def env(name, default):
 
 # practice (squad) and free-for-all parameter sets
 SQUAD = dict(engage=60.0, laser_r=env("K2_LASER_R", 120.0), gun_r=85.0, light_r=28.0, max_t=240.0, hpw=0.18,
-             low_bonus=200.0, stick=200.0, retreat_hp=0.38, recover_hp=0.8, loot_r=150.0, laser_seek=240.0,
-             fight_loot=70.0, farm_hp=0.5, crates_until=1e9, peek=False, ghost=False, lose_rule=True,
+             low_bonus=200.0, stick=200.0, retreat_hp=env("K2_RETREAT", 0.38), recover_hp=0.8, loot_r=150.0,
+             laser_seek=240.0, fight_loot=env("K2_FIGHT_LOOT", 70.0), farm_hp=0.5, crates_until=1e9, peek=False, ghost=False, lose_rule=True,
              lethal_k=0.7, finish=20.0)
 FFA = dict(engage=60.0, laser_r=85.0, gun_r=85.0, light_r=28.0, max_t=215.0, hpw=60.0 / 1400, low_bonus=0.0,
            stick=0.0, retreat_hp=0.38, recover_hp=0.8, loot_r=90.0, laser_seek=0.0, fight_loot=0.0, farm_hp=0.7,
@@ -704,6 +711,8 @@ class Bot:
 
         if o.get("offer") and o["offer"].get("choices"):
             order = UPG_LASER if self.prac_on else UPG_BASE
+            if UPG_ORDER == "damage":
+                order = UPG_DAMAGE
             ch = o["offer"]["choices"]
             act["pick"] = min(range(len(ch)), key=lambda i: order.index(ch[i]["id"]) if ch[i]["id"] in order else 99)
 
@@ -764,7 +773,7 @@ class Bot:
         finishing = target is not None and target.dist < 120 and (target.hp < 200 or target.hp < me["hp"] * 0.5)
         outgunned = target is not None and "laser" in (target.weapons or ()) and laser is None \
             and target.dist > 55 and hp_frac < 0.8
-        swamped = crowd >= 3 or (crowd == 2 and hp_frac < 0.65) or outgunned
+        swamped = crowd >= CROWD_N or (crowd == CROWD_N - 1 and hp_frac < 0.65) or outgunned
         if not self.retreat and ((hp_frac < P["retreat_hp"] and now - self.last_threat < 2) or swamped):
             self.retreat = True
             self.cover_goal = None
