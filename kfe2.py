@@ -673,7 +673,7 @@ class Bot:
             self.other_dead = 0
         if self.other_dead >= 5:
             self.ffa = True
-        on = not self.ffa and now > 20
+        on = not self.ffa and now > 10
         if on != self.prac_on:
             self.prac_on = on
             self.P = dict(SQUAD) if on else dict(FFA)
