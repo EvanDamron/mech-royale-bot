@@ -77,6 +77,26 @@ F_RANGE = int(os.environ.get("F_RANGE", 0))   # lightning vs laser at 30-70 m: c
 F_ARM = int(os.environ.get("F_ARM", 0))       # unarmed, free-for-all confirmed, walking to a weapon: keep only 70 m from mechs
 SALT = int(os.environ.get("K2_SALT", 7))     # salt for the tie-break and strafe random draws (no strategy effect)
 F_STUCK = int(os.environ.get("F_STUCK", 1))   # 3 unstuck triggers in 10 s: jump and jet toward where we were going
+# practice: the F_STUCK escape also in practice, plus a trigger for travel that makes no progress (sliding along a wall,
+# circling a cube on a ledge) which the low-speed test misses; D_STUCK = seconds without 5 m of net progress (0 = off)
+D_STUCK = float(os.environ.get("D_STUCK", 0))
+# practice: unarmed and nothing left to loot from memory after this many seconds (0 = off): walk to an unexplored spot in the
+# next circle away from known mechs, torso turning full circles, instead of holding the zone goal (5034: 70 s idle unarmed
+# with two lightnings 150 m away behind buildings)
+D_EXPLORE = float(os.environ.get("D_EXPLORE", 0))
+# practice: without a laser, a known laser pickup is worth this much loot value (0 = off; the default 150 lets a drone or
+# crate 20-40 m away win over a laser 150-240 m away)
+D_LFIRST = float(os.environ.get("D_LFIRST", 0))
+# practice: loot value of a cube while under the stat cap (0 = the old 75); each of the first 10 cubes is +4% HP and damage
+D_CUBEV = float(os.environ.get("D_CUBEV", 0))
+# practice: for 25 s after our kill, the victim's cubes (they drop where it died) are collected from up to this far, mid-fight
+# too, and the standoff's 100 m no-cube-walk rule shrinks to 50 m for them (0 = off). The public bot reaches its kill spot on
+# 67%/33%/9% of kills under 60/60-100/100+ m, we on 48%/17%/3%: 2.1 cubes per kill against our 1.3.
+D_KCUBE = float(os.environ.get("D_KCUBE", 0))
+# practice: weapon pickups on rooftops are loot too (rulebook: a quarter of floor weapons and crates sit on roofs; we skipped
+# every one): walk to the building, then jump and jet up to the item (100 energy climbs ~60 m). 1 = in practice rules only,
+# 2 = also under free-for-all rules (that includes the first 20 s of every match, before practice is detected)
+D_ROOF = int(os.environ.get("D_ROOF", 0))
 X_SPIN = int(os.environ.get("X_SPIN", 1))            # free-for-all: full-circle scan whenever the torso is free, also while walking
 X_FLOW = int(os.environ.get("X_FLOW", 1))            # full path field for long trips (the capped A* dead-ends)
 
@@ -245,6 +265,8 @@ class Bot:
         self.unstuck_until = -1.0
         self.unstuck_dir = (1.0, 0.0)
         self.stuck_hits = []
+        self.prog = []
+        self.kspot = None
         self.jet_until = -1.0
         self.hold = None
         self.hold_start = None
@@ -774,6 +796,55 @@ class Bot:
         cur = rank.get(slots[1]["kind"], 0) if len(slots) > 1 and slots[1] else 0
         return rank.get(kind, 0) > cur
 
+    def roof_approach(self, oid, pos, my_comp_):
+        """D_ROOF: the nearest free ground point to a rooftop item that our walking area reaches (cached per item)."""
+        c = getattr(self, "roof_ap", {})
+        self.roof_ap = c
+        if oid in c:
+            return c[oid]
+        W = self.W
+        best = (pos[0], pos[1])
+        for r in range(3, 40, 2):
+            hit = None
+            for k in range(24):
+                a = k * TAU / 24
+                px, py = pos[0] + math.cos(a) * r, pos[1] + math.sin(a) * r
+                if W.in_bounds(px, py, 5) and W.free_at(px, py) and (my_comp_ < 0 or W.comp_at(px, py) == my_comp_):
+                    hit = (px, py)
+                    break
+            if hit is not None:
+                best = hit
+                break
+        c[oid] = best
+        return best
+
+    def kcube(self, c):
+        """D_KCUBE: a cube lying where our last kill (under 25 s ago) died."""
+        k = self.kspot
+        return D_KCUBE and self.prac_on and k is not None and self.now - k[2] < 25 and hyp(c["pos"][0] - k[0], c["pos"][1] - k[1]) < 10
+
+    def explore_pt(self, z, x, y):
+        """D_EXPLORE: keep (or pick) a point in the next circle 50-220 m off, 110 m clear of every mech seen in 15 s."""
+        now = self.now
+        ex = getattr(self, "explore", None)
+        if ex is not None and now <= self.explore_until and hyp(ex[0] - x, ex[1] - y) >= 8:
+            return ex
+        ex = None
+        for _ in range(20):
+            a_ = self.rng.random() * TAU
+            r_ = math.sqrt(self.rng.random()) * z["next_radius"] * 0.8
+            px_, py_ = z["next_center"][0] + math.cos(a_) * r_, z["next_center"][1] + math.sin(a_) * r_
+            dd_ = hyp(px_ - x, py_ - y)
+            if dd_ < 50 or dd_ > 220 or not self.W.in_bounds(px_, py_, 5) or not self.W.free_at(px_, py_):
+                continue
+            if any(now - t.seen < 15 and hyp(t.pos[0] - px_, t.pos[1] - py_) < 110 for t in self.tracks.values()):
+                continue
+            ex = (px_, py_)
+            break
+        self.explore = ex
+        self.explore_until = now + 30
+        return ex
+
     def home(self, o):
         z = o["zone"]
         nc, nr = z["next_center"], z["next_radius"]
@@ -838,9 +909,10 @@ class Bot:
                 return
             if now + d * 1.4 / me["stats"].get("walk_speed", 11.7) + 5 > self.zone_deadline(z, pos[0], pos[1], 6):
                 return
-            if pos[2] - W.terrain(pos[0], pos[1]) > 3.2:
+            roof = D_ROOF and (self.prac_on or D_ROOF >= 2) and kind == "pickup" and 3.2 < pos[2] - W.terrain(pos[0], pos[1]) < 45
+            if pos[2] - W.terrain(pos[0], pos[1]) > 3.2 and not roof:
                 return
-            if W.comp_at(pos[0], pos[1]) != my_comp:
+            if W.comp_at(pos[0], pos[1]) != my_comp and not roof:
                 return
             u = value / (d + 18)
             if oid == self.loot_id:
@@ -867,6 +939,8 @@ class Bot:
                     v = max(v, 150.0)
                 if swap:
                     v = max(v, 200.0)
+                if D_LFIRST and self.prac_on and p["kind"] == "laser":
+                    v = max(v, D_LFIRST)
                 if far:
                     # league review: over a quarter of rival bot deaths are unarmed ones around 50 s, worth 3.7 points
                     v = 330.0 if p["kind"] == "laser" else 260.0
@@ -874,18 +948,21 @@ class Bot:
                            for t in self.tracks.values()):
                         continue      # inside someone's 60 m bubble: not unarmed
                 consider("pickup", p["id"], p["pos"], v)
-        cube_v = 75.0 if me.get("cubes", 0) < self.cfg["cubes"]["stat_cap"] else 25.0
+        cube_v = crate_base = 75.0 if me.get("cubes", 0) < self.cfg["cubes"]["stat_cap"] else 25.0
+        if D_CUBEV and self.prac_on and me.get("cubes", 0) < self.cfg["cubes"]["stat_cap"]:
+            cube_v = D_CUBEV
         for c in self.cubes.values():
-            if hyp(c["pos"][0] - x, c["pos"][1] - y) < max(60.0, P["loot_r"] * 0.7):
+            k_ = self.kcube(c)
+            if hyp(c["pos"][0] - x, c["pos"][1] - y) < (max(60.0, P["loot_r"] * 0.7, D_KCUBE) if k_ else max(60.0, P["loot_r"] * 0.7)):
                 if V_CUBE and self.contested(c["pos"], x, y):
                     continue
-                consider("cube", c["id"], c["pos"], cube_v)
+                consider("cube", c["id"], c["pos"], max(cube_v, 200.0) if k_ else cube_v)
         crate_any = X_EXPLORE and unarmed and not self.prac_on and not danger
         no_farm = OPEN >= 2 and unarmed and now < 40   # opening review: 14 s farming drones unarmed while a laser lay 104 m away
         if ((hp_frac > P["farm_hp"] and not danger and now < P["crates_until"]) or crate_any) and not no_farm:
             for c in self.crates.values():
                 if hyp(c["pos"][0] - x, c["pos"][1] - y) < (150.0 if crate_any else P["loot_r"]):
-                    consider("crate", c["id"], c["pos"], 110.0 if crate_any else cube_v * 0.6)
+                    consider("crate", c["id"], c["pos"], 110.0 if crate_any else crate_base * 0.6)
             if me.get("cubes", 0) < self.cfg["cubes"]["stat_cap"]:
                 for n in self.npcs.values():
                     if now - n.seen < 12 and hyp(n.pos[0] - x, n.pos[1] - y) < P["loot_r"]:
@@ -1013,7 +1090,9 @@ class Bot:
             elif et == "kill":
                 self.reset_until = now + RESET
                 self.kills += 1
-                self.tracks.pop(e.get("target"), None)
+                kt = self.tracks.pop(e.get("target"), None)
+                if kt is not None:
+                    self.kspot = (kt.pos[0], kt.pos[1], now)
         # free-for-all detection: deaths we did not cause (house squads only die to us)
         if self.start_alive is None:
             self.start_alive = o["alive"]
@@ -1326,12 +1405,20 @@ class Bot:
             elif P["fight_loot"]:
                 r = P["fight_loot"] * (0.57 if hp_frac <= 0.5 else 1.0)
                 bc = None
+                kc, kr = None, D_KCUBE
                 for c in self.cubes.values():
                     d = hyp(c["pos"][0] - x, c["pos"][1] - y)
-                    if d < r and not (V_CUBE and self.contested(c["pos"], x, y)):
+                    if V_CUBE and self.contested(c["pos"], x, y):
+                        continue
+                    if self.kcube(c):
+                        if d < kr:
+                            kr, kc = d, c["pos"]       # D_KCUBE: our kill's cubes first, from further out
+                    elif d < r:
                         r, bc = d, c["pos"]
+                if kc is not None:
+                    bc = kc
                 if bc is not None and STAND and laser is not None and any(
-                        t.kind == "mech" and now - t.seen < 3 and hyp(t.pos[0] - bc[0], t.pos[1] - bc[1]) < 100
+                        t.kind == "mech" and now - t.seen < 3 and hyp(t.pos[0] - bc[0], t.pos[1] - bc[1]) < (50 if kc is not None else 100)
                         for t in self.tracks.values()):
                     bc = None     # standoff: no cube walk that takes us inside 100 m of a mech
                 if bc is not None:
@@ -1375,10 +1462,33 @@ class Bot:
                         cm = self.cover_move(o, [t for t in self.tracks.values() if now - t.seen < 10])
                         if cm is not None:
                             mx, my = cm
+                elif D_ROOF and (self.prac_on or D_ROOF >= 2) and kind == "pickup" and pos[2] - W.terrain(pos[0], pos[1]) > 3.2 \
+                        and hyp(pos[0] - x, pos[1] - y) < 120:
+                    # rooftop weapon: straight at it; from below, jump and jet until our feet clear its roof
+                    d = max(hyp(pos[0] - x, pos[1] - y), 0.1)
+                    below = pos[2] - zf > 1.0
+                    if below and me["grounded"] and me["energy"] < min(100.0, (pos[2] - zf) * 1.7 + 15):
+                        mx = my = 0.0
+                        mode = "loot:climbwait"
+                    else:
+                        mx, my = (pos[0] - x) / d, (pos[1] - y) / d
+                        mode = "loot:climb"
+                        if below and me["grounded"]:
+                            self.climb_jump = True
+                        elif not me["grounded"] and zf < pos[2] + 1.0 and me["energy"] > 3:
+                            boost = True
+                elif D_ROOF and (self.prac_on or D_ROOF >= 2) and kind == "pickup" and pos[2] - W.terrain(pos[0], pos[1]) > 3.2:
+                    ap = self.roof_approach(oid, pos, my_comp_=W.comp_at(x, y))
+                    mx, my = self.travel(me, ap[0], ap[1])
+                    mode = "loot:roof"
                 else:
                     mx, my = self.travel(me, pos[0], pos[1])
                     if kind == "drop" and hyp(pos[0] - x, pos[1] - y) < 2.5:
                         mx = my = 0.0
+            elif D_EXPLORE and self.prac_on and slots[1] is None and now > D_EXPLORE and not late \
+                    and self.explore_pt(z, x, y) is not None:
+                mx, my = self.travel(me, self.explore[0], self.explore[1])
+                mode = "explore"
             elif zdist > 3 and (not P["ghost"] or z["next_radius"] <= 30):
                 mx, my = self.travel(me, zgx, zgy)
                 mode = "zone-walk"
@@ -1453,6 +1563,7 @@ class Bot:
             farm_pos = None
             mode = "scan"
         close_pick = close_pick or (F_DROP == 1 and mode == "loot:drop:go")     # committed; drop_threat already cleared the area
+        close_pick = close_pick or (D_ROOF and mode == "loot:climb")     # mid-climb: a spacing push drops us off the wall
         if not self.prac_on and not close_pick and mode not in ("unstuck", "zone", "cover", "hide", "fight", "fight:cube", "fight:pick", "fight:close", "fight:hide", "fight:back", "cornered", "scan") \
                 and not late:
             R = X_UNARMED if slots[1] is None else X_AVOID
@@ -1563,17 +1674,27 @@ class Bot:
                     boost = True
 
         jump = False
-        if (mx or my) and hyp(me["vel"][0], me["vel"][1]) < 1.2 and me["grounded"]:
-            if self.stuck_since < 0:
+        if getattr(self, "climb_jump", False):
+            jump, self.climb_jump = mode == "loot:climb", False
+        noprog = False
+        if D_STUCK and self.prac_on and hyp(mx, my) > 0.5 and mode.startswith(("loot:cube", "loot:pickup", "loot:drop", "zone")):
+            self.prog = [p_ for p_ in self.prog if now - p_[0] <= D_STUCK] + [(now, x, y)]
+            if now - self.prog[0][0] >= D_STUCK - 0.2 and hyp(x - self.prog[0][1], y - self.prog[0][2]) < 5:
+                noprog = True
+                self.prog = []
+        else:
+            self.prog = []
+        if (mx or my) and ((hyp(me["vel"][0], me["vel"][1]) < 1.2 and me["grounded"]) or noprog) and mode != "loot:climb":
+            if self.stuck_since < 0 and not noprog:
                 self.stuck_since = now
-            elif now - self.stuck_since > 0.7:
+            elif noprog or now - self.stuck_since > 0.7:
                 a = self.rng.random() * TAU
                 self.unstuck_dir = (math.cos(a), math.sin(a))
                 self.unstuck_until = now + 0.5
                 self.stuck_since = -1
                 self.path = None
                 jump = True
-                if F_STUCK and self.ffa:      # confirmed free-for-all only: the first 20 s of practice are not practice mode yet
+                if F_STUCK and (self.ffa or D_STUCK):   # confirmed free-for-all, or practice too with D_STUCK
                     # review: 20 s pressed against a building outside the zone, 50 s on a bridge over cubes;
                     # a random half-second step does not get past a wall, a jet over it does (100 energy climbs ~60 m)
                     self.stuck_hits = [h for h in self.stuck_hits if now - h < 10] + [now]
@@ -1728,7 +1849,7 @@ class Bot:
                 aim[0] = self.hurt_bearing
             elif X_EARS and not self.prac_on and self.look is not None and now < self.look[1]:
                 aim[0] = self.look[0]     # an unseen mech made that sound: look before it arrives
-            elif (mx or my) and not (X_SPIN and not self.prac_on):
+            elif (mx or my) and not (X_SPIN and not self.prac_on) and not (D_EXPLORE and mode == "explore"):
                 aim[0] = math.atan2(my, mx) + 1.15 * math.sin(now * 1.3)
             else:
                 aim[0] = me["aim"][0] + 0.35      # full circle about every 1.6 s: nothing walks up behind us unseen
