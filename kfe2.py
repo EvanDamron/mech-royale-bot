@@ -790,7 +790,7 @@ class Bot:
                     losing = False
             if losing:
                 self.lose_at = now
-            self.retreat = self.lose_at > 0 and now - self.lose_at < 1.5
+            self.retreat = (self.lose_at > 0 and now - self.lose_at < 1.5) or outgunned
 
         # ---- movement mode
         mx = my = 0.0
