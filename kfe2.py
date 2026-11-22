@@ -21,7 +21,7 @@ DEBUG = bool(int(os.environ.get("KFE_DEBUG", 0)))
 PARTIAL_COVER = bool(int(os.environ.get("K2_PARTIAL", 0)))  # fewest-watchers cover fallback (league: hurts, off)
 WITHDRAW = bool(int(os.environ.get("K2_WITHDRAW", 1)))       # swamped, no cover, no target: back away instead of standing
 USE_DROPS = bool(int(os.environ.get("K2_DROPS", 0)))       # go for supply drops (league: costs placement, off)
-CROWD_N = int(os.environ.get("K2_CROWD", 3))                               # this many engaged/close enemies in view means retreat
+CROWD_N = int(os.environ.get("K2_CROWD", 4))                               # this many engaged/close enemies in view means retreat
 UPG_ORDER = os.environ.get("K2_UPG", "survive")              # "survive" or "damage"
 OPENING_HUNT = bool(int(os.environ.get("K2_OPENING", 0)))   # walk far for a laser in the first 20 s
 
