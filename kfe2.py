@@ -76,6 +76,13 @@ F_DROP = int(os.environ.get("F_DROP", 0))     # drops: wait ~90 m out, walk in t
 F_RANGE = int(os.environ.get("F_RANGE", 0))   # lightning vs laser at 30-70 m: close in or hide; laser vs lightning: stay out of its arc
 F_ARM = int(os.environ.get("F_ARM", 0))       # unarmed, free-for-all confirmed, walking to a weapon: keep only 70 m from mechs
 F_STUCK = int(os.environ.get("F_STUCK", 1))   # 3 unstuck triggers in 10 s: jump and jet toward where we were going
+# practice: the F_STUCK escape also in practice, plus a trigger for travel that makes no progress (sliding along a wall,
+# circling a cube on a ledge) which the low-speed test misses; D_STUCK = seconds without 5 m of net progress (0 = off)
+D_STUCK = float(os.environ.get("D_STUCK", 0))
+# practice: unarmed and nothing left to loot from memory after this many seconds (0 = off): walk to an unexplored spot in the
+# next circle away from known mechs, torso turning full circles, instead of holding the zone goal (5034: 70 s idle unarmed
+# with two lightnings 150 m away behind buildings)
+D_EXPLORE = float(os.environ.get("D_EXPLORE", 0))
 X_SPIN = int(os.environ.get("X_SPIN", 1))            # free-for-all: full-circle scan whenever the torso is free, also while walking
 X_FLOW = int(os.environ.get("X_FLOW", 1))            # full path field for long trips (the capped A* dead-ends)
 
@@ -244,6 +251,7 @@ class Bot:
         self.unstuck_until = -1.0
         self.unstuck_dir = (1.0, 0.0)
         self.stuck_hits = []
+        self.prog = []
         self.jet_until = -1.0
         self.hold = None
         self.hold_start = None
@@ -772,6 +780,28 @@ class Bot:
         rank = {"laser": 4, "lightning": 3, "mortar": 1}
         cur = rank.get(slots[1]["kind"], 0) if len(slots) > 1 and slots[1] else 0
         return rank.get(kind, 0) > cur
+
+    def explore_pt(self, z, x, y):
+        """D_EXPLORE: keep (or pick) a point in the next circle 50-220 m off, 110 m clear of every mech seen in 15 s."""
+        now = self.now
+        ex = getattr(self, "explore", None)
+        if ex is not None and now <= self.explore_until and hyp(ex[0] - x, ex[1] - y) >= 8:
+            return ex
+        ex = None
+        for _ in range(20):
+            a_ = self.rng.random() * TAU
+            r_ = math.sqrt(self.rng.random()) * z["next_radius"] * 0.8
+            px_, py_ = z["next_center"][0] + math.cos(a_) * r_, z["next_center"][1] + math.sin(a_) * r_
+            dd_ = hyp(px_ - x, py_ - y)
+            if dd_ < 50 or dd_ > 220 or not self.W.in_bounds(px_, py_, 5) or not self.W.free_at(px_, py_):
+                continue
+            if any(now - t.seen < 15 and hyp(t.pos[0] - px_, t.pos[1] - py_) < 110 for t in self.tracks.values()):
+                continue
+            ex = (px_, py_)
+            break
+        self.explore = ex
+        self.explore_until = now + 30
+        return ex
 
     def home(self, o):
         z = o["zone"]
@@ -1378,6 +1408,10 @@ class Bot:
                     mx, my = self.travel(me, pos[0], pos[1])
                     if kind == "drop" and hyp(pos[0] - x, pos[1] - y) < 2.5:
                         mx = my = 0.0
+            elif D_EXPLORE and self.prac_on and slots[1] is None and now > D_EXPLORE and not late \
+                    and self.explore_pt(z, x, y) is not None:
+                mx, my = self.travel(me, self.explore[0], self.explore[1])
+                mode = "explore"
             elif zdist > 3 and (not P["ghost"] or z["next_radius"] <= 30):
                 mx, my = self.travel(me, zgx, zgy)
                 mode = "zone-walk"
@@ -1562,17 +1596,25 @@ class Bot:
                     boost = True
 
         jump = False
-        if (mx or my) and hyp(me["vel"][0], me["vel"][1]) < 1.2 and me["grounded"]:
-            if self.stuck_since < 0:
+        noprog = False
+        if D_STUCK and self.prac_on and hyp(mx, my) > 0.5 and mode.startswith(("loot:cube", "loot:pickup", "loot:drop", "zone")):
+            self.prog = [p_ for p_ in self.prog if now - p_[0] <= D_STUCK] + [(now, x, y)]
+            if now - self.prog[0][0] >= D_STUCK - 0.2 and hyp(x - self.prog[0][1], y - self.prog[0][2]) < 5:
+                noprog = True
+                self.prog = []
+        else:
+            self.prog = []
+        if (mx or my) and ((hyp(me["vel"][0], me["vel"][1]) < 1.2 and me["grounded"]) or noprog):
+            if self.stuck_since < 0 and not noprog:
                 self.stuck_since = now
-            elif now - self.stuck_since > 0.7:
+            elif noprog or now - self.stuck_since > 0.7:
                 a = self.rng.random() * TAU
                 self.unstuck_dir = (math.cos(a), math.sin(a))
                 self.unstuck_until = now + 0.5
                 self.stuck_since = -1
                 self.path = None
                 jump = True
-                if F_STUCK and not self.prac_on:
+                if F_STUCK and (not self.prac_on or D_STUCK):
                     # review: 20 s pressed against a building outside the zone, 50 s on a bridge over cubes;
                     # a random half-second step does not get past a wall, a jet over it does (100 energy climbs ~60 m)
                     self.stuck_hits = [h for h in self.stuck_hits if now - h < 10] + [now]
@@ -1727,7 +1769,7 @@ class Bot:
                 aim[0] = self.hurt_bearing
             elif X_EARS and not self.prac_on and self.look is not None and now < self.look[1]:
                 aim[0] = self.look[0]     # an unseen mech made that sound: look before it arrives
-            elif (mx or my) and not (X_SPIN and not self.prac_on):
+            elif (mx or my) and not (X_SPIN and not self.prac_on) and not (D_EXPLORE and mode == "explore"):
                 aim[0] = math.atan2(my, mx) + 1.15 * math.sin(now * 1.3)
             else:
                 aim[0] = me["aim"][0] + 0.35      # full circle about every 1.6 s: nothing walks up behind us unseen
