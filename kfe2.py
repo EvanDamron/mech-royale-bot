@@ -70,8 +70,12 @@ X_ODDS_HI = float(os.environ.get("X_ODDS_HI", 1.25)) # above this, open with the
 X_STRIKE = float(os.environ.get("X_STRIKE", 110))
 X_EARS = int(os.environ.get("X_EARS", 0))            # free-for-all: place unseen mechs from what we hear (look there, keep clear of them)
 X_ODDS_FFA = int(os.environ.get("X_ODDS_FFA", 1))    # 1: the odds rule waits for the first death we did not cause
-F_STUCK = int(os.environ.get("F_STUCK", 0))   # 3 unstuck triggers in 10 s: jump and jet toward where we were going
 X_RANGE = float(os.environ.get("X_RANGE", 0))        # free-for-all: gun and laser fighting range (0 = keep 85 m)
+# --- free-for-all fixes from the visual review (all off by default, never active in practice mode) ---
+F_DROP = int(os.environ.get("F_DROP", 0))     # drops: wait ~90 m out, walk in to arrive as it lands; 1 also skips when unarmed/final 3/stronger mech near
+F_RANGE = int(os.environ.get("F_RANGE", 0))   # lightning vs laser at 30-70 m: close in or hide; laser vs lightning: stay out of its arc
+F_ARM = int(os.environ.get("F_ARM", 0))       # unarmed, free-for-all confirmed, walking to a weapon: keep only 70 m from mechs
+F_STUCK = int(os.environ.get("F_STUCK", 0))   # 3 unstuck triggers in 10 s: jump and jet toward where we were going
 X_SPIN = int(os.environ.get("X_SPIN", 1))            # free-for-all: full-circle scan whenever the torso is free, also while walking
 X_FLOW = int(os.environ.get("X_FLOW", 1))            # full path field for long trips (the capped A* dead-ends)
 
@@ -885,10 +889,13 @@ class Bot:
                 for n in self.npcs.values():
                     if now - n.seen < 12 and hyp(n.pos[0] - x, n.pos[1] - y) < P["loot_r"]:
                         consider("npc", n.id, n.pos, 85.0)
-        if (USE_DROPS or (X_DROPS and not self.prac_on)) and not danger:
+        drops_ok = not (F_DROP == 1 and not self.prac_on and (unarmed or o["alive"] <= 3))
+        if (USE_DROPS or (X_DROPS and not self.prac_on)) and not danger and drops_ok:
             for d in o.get("drops") or []:
                 dd = hyp(d["pos"][0] - x, d["pos"][1] - y)
                 if d.get("holder") not in (None, self.slot) and d.get("lands_in", 0) <= 0:
+                    continue
+                if F_DROP == 1 and not self.prac_on and self.drop_threat(me, slots, d["pos"]):
                     continue
                 if dd / me["stats"].get("walk_speed", 11.7) < d.get("lands_in", 0) + 25:
                     consider("drop", d["id"], d["pos"], 260.0)
@@ -898,11 +905,38 @@ class Bot:
         if best[2] != self.loot_id:
             self.loot_id = best[2]
             self.loot_since = now
+        elif F_DROP and best[1] == "drop" and not self.prac_on:
+            pass      # the wait for the landing is planned; drop_threat and the ring holder end a bad trip
         elif now - self.loot_since > 30:
             self.bad[best[2]] = now + 60
             self.loot_id = None
             return None
         return best
+
+    def drop_threat(self, me, slots, pos):
+        """A mech we would not beat (odds under 1.1) seen in the last 10 s within 120 m of a drop or of us: real drop
+        takers capture with nobody that close; ours died to the mech that walked up while it stood at the ring."""
+        x, y = me["pos"][0], me["pos"][1]
+        for t in self.tracks.values():
+            if self.now - t.seen < 10 and min(hyp(t.pos[0] - pos[0], t.pos[1] - pos[1]), hyp(t.pos[0] - x, t.pos[1] - y)) < 120 \
+                    and self.strength(me, t, slots) < 1.1:
+                return True
+        return False
+
+    def drop_goal(self, me, d):
+        """Where to stand for drop d: until it is time to walk in (arrive about 1 s after it lands), a spot about 90 m out
+        on our side; then the ring itself."""
+        x, y = me["pos"][0], me["pos"][1]
+        px, py = d["pos"][0], d["pos"][1]
+        dd = hyp(px - x, py - y)
+        walk = me["stats"].get("walk_speed", 11.7)
+        lands = d.get("lands_in", 0)
+        if lands <= 0 or dd * 1.25 / walk >= lands - 1.0:
+            return px, py, "go"
+        if 55 <= dd <= 95:
+            return x, y, "wait"
+        r = 90.0 if dd > 95 else 80.0
+        return px + (x - px) / max(dd, 1.0) * r, py + (y - py) / max(dd, 1.0) * r, "stage"
 
     # ------------------------------------------------------------------ observation
     def observe(self, o):
@@ -1267,9 +1301,27 @@ class Bot:
                 boost = True
             mode = "fight"
             pk = self.near_pick(me, slots, x, y, zf) if V_PICK else None
+            fw = foe.weapons or ()
+            rng_fix = None
+            if F_RANGE and not self.prac_on and not late:
+                if light is not None and laser is None and "laser" in fw and 30 < foe.dist < 70:
+                    # lightning against a laser at 35-60 m in its line lost 15 of 22 fights: get inside the arc or out of sight
+                    if me["energy"] >= 30 and hp_frac > 0.4:
+                        rng_fix = self.travel(me, foe.pos[0], foe.pos[1]) + ("fight:close",)
+                    else:
+                        cm = self.cover_move(o, [foe])
+                        if cm is not None:
+                            rng_fix = cm + ("fight:hide",)
+                elif laser is not None and light is None and "lightning" in fw and foe.dist < 45:
+                    w = self.withdraw(o, [foe])     # its arc reaches 45 m; the laser does not care about range
+                    if w is not None:
+                        rng_fix = w + ("fight:back",)
             if pk is not None:
                 mx, my = self.travel(me, pk[0], pk[1])
                 mode = "fight:pick"
+            elif rng_fix is not None:
+                mx, my, mode = rng_fix
+                boost = mode != "fight:hide" and me["energy"] > 20
             elif P["fight_loot"]:
                 r = P["fight_loot"] * (0.57 if hp_frac <= 0.5 else 1.0)
                 bc = None
@@ -1308,6 +1360,20 @@ class Bot:
                             mx, my = (x - pos[0]) / max(d, 0.1), (y - pos[1]) / max(d, 0.1)
                     else:
                         mx, my = self.travel(me, pos[0], pos[1])
+                elif kind == "drop" and F_DROP and not self.prac_on:
+                    d_ = next((d for d in o.get("drops") or [] if d["id"] == oid), None)
+                    gx_, gy_, ph = self.drop_goal(me, d_) if d_ is not None else (pos[0], pos[1], "go")
+                    mode = "loot:drop:" + ph
+                    if ph == "go" and hyp(pos[0] - x, pos[1] - y) < 2.5:
+                        mx = my = 0.0
+                    elif hyp(gx_ - x, gy_ - y) > 3:
+                        mx, my = self.travel(me, gx_, gy_)
+                        boost = ph == "go" and d_ is not None and d_.get("lands_in", 0) <= 0 and me["energy"] > 30
+                    elif ph != "go":
+                        # waiting: out of sight of every mech we know of (real drop takers wait in cover ~100 m off)
+                        cm = self.cover_move(o, [t for t in self.tracks.values() if now - t.seen < 10])
+                        if cm is not None:
+                            mx, my = cm
                 else:
                     mx, my = self.travel(me, pos[0], pos[1])
                     if kind == "drop" and hyp(pos[0] - x, pos[1] - y) < 2.5:
@@ -1385,9 +1451,15 @@ class Bot:
             farm = None
             farm_pos = None
             mode = "scan"
-        if not self.prac_on and not close_pick and mode not in ("unstuck", "zone", "cover", "hide", "fight", "fight:cube", "fight:pick", "cornered", "scan") \
+        close_pick = close_pick or (F_DROP == 1 and mode == "loot:drop:go")     # committed; drop_threat already cleared the area
+        if not self.prac_on and not close_pick and mode not in ("unstuck", "zone", "cover", "hide", "fight", "fight:cube", "fight:pick", "fight:close", "fight:hide", "fight:back", "cornered", "scan") \
                 and not late:
             R = X_UNARMED if slots[1] is None else X_AVOID
+            # F_ARM: once the free-for-all is confirmed rival bots start fights at 60 m, but the 110 m bubble (135 m from
+            # a mech we would lose to) turned weapon walks into 100+ s of back and forth (10-12 never-armed of 80)
+            arm = F_ARM and slots[1] is None and self.ffa and mode == "loot:pickup"
+            if arm:
+                R = 70.0
             if R > 0:
                 rx = ry = 0.0
                 hurry = False
@@ -1395,7 +1467,7 @@ class Bot:
                     if now - t.seen > 8:
                         continue
                     dm = hyp(t.pos[0] - x, t.pos[1] - y)
-                    de = dm - 25.0 if X_ODDS and t.odds < X_ODDS_LO else dm    # 25 m more from a mech we would lose to
+                    de = dm - 25.0 if X_ODDS and t.odds < X_ODDS_LO and not arm else dm    # 25 m more from a mech we would lose to
                     if de < R:
                         w = 0.35 + (R - de) / R
                         rx += (x - t.pos[0]) / max(dm, 1.0) * w
@@ -1436,7 +1508,7 @@ class Bot:
                     farm_pos = None
                     mode += "+space"
         if X_HUSH and not self.prac_on and not close_pick and now > 19 and (not self.ffa or (self.start_alive - o["alive"] < 2 and now < 60)) \
-                and mode not in ("unstuck", "zone", "cover", "hide", "fight", "fight:cube", "fight:pick", "cornered", "break"):
+                and mode not in ("unstuck", "zone", "cover", "hide", "fight", "fight:cube", "fight:pick", "fight:close", "fight:hide", "fight:back", "cornered", "break"):
             # from 20 s until the first death every rival bot attacks whatever closes on it at over 3 m/s inside 180 m
             # (review: 4 of 10 deaths before 40 s were lasers from 110-120 m while we ran for a pickup). Its own walk
             # toward us counts, so the limit is on the relative speed: slow down, sidestep or back away to stay under it.
