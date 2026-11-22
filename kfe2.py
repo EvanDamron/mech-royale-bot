@@ -118,7 +118,7 @@ H_VIEW_R = float(os.environ.get("H_VIEW_R", 150))
 H_VIEW_INV = int(os.environ.get("H_VIEW_INV", 0))  # 1: the opposite, wait on an enclosed spot (fewest open sight lines)  # a hunter that sees us inside ~170 m only strafes in at ~3 m/s; one that cannot walks straight in
 H_LASERT = float(os.environ.get("H_LASERT", 0))   # practice, no laser yet: meters off the target score of a laser carrier, and engage one inside 120 m (dead mechs drop their weapons)
 H_EDGE = float(os.environ.get("H_EDGE", 40))       # practice, idle: wait this far inside the next zone's edge, on our side (house bots wander inside 0.6x its radius)
-H_PRECH = int(os.environ.get("H_PRECH", 0))       # practice: charge the laser at an engaged mech that just left our sight (hunters walk straight back in)
+H_PRECH = int(os.environ.get("H_PRECH", 1))       # practice: charge the laser at an engaged mech that just left our sight (hunters walk straight back in)
 H_CRATE = float(os.environ.get("H_CRATE", 0))     # practice, no laser: crate value (a crate drops a laser 1 time in 6) and 1.5x search radius (0 = off)
 H_FFA_LATE = int(os.environ.get("H_FFA_LATE", 3))  # after X_PRACT s with no stray death, this many deaths we did not cause mean free-for-all (house bots die to drones, the zone and each other's stray shots; 0 = X_FFA_N)
 H_PEEK = int(os.environ.get("H_PEEK", 0))         # practice: peek-fight (hide while the laser cools / gun reloads); house react timers restart
@@ -143,7 +143,7 @@ def env(name, default):
 
 # practice (squad) and free-for-all parameter sets
 SQUAD = dict(engage=env("S_ENGAGE", 60.0), laser_r=env("K2_LASER_R", 120.0), gun_r=env("S_GUN_R", 85.0), light_r=28.0,
-             max_t=240.0, hpw=env("S_HPW", 0.18), low_bonus=env("S_LOW_BONUS", 200.0), stick=env("S_STICK", 200.0),
+             max_t=240.0, hpw=env("S_HPW", 0.18), low_bonus=env("S_LOW_BONUS", 200.0), stick=env("S_STICK", 0.0),
              retreat_hp=env("K2_RETREAT", 0.38), recover_hp=env("S_RECOVER", 0.8), loot_r=env("S_LOOT_R", 150.0),
              laser_seek=env("S_LASER_SEEK", 240.0), fight_loot=env("K2_FIGHT_LOOT", 70.0), farm_hp=env("S_FARM_HP", 0.5),
              crates_until=1e9, peek=False, ghost=False, lose_rule=True, lethal_k=env("S_LETHAL_K", 0.7), finish=env("S_FINISH", 20.0))
