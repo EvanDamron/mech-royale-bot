@@ -1176,7 +1176,10 @@ class Bot:
         # free-for-all detection: deaths we did not cause (house squads only die to us)
         if self.start_alive is None:
             self.start_alive = o["alive"]
-        need = X_FFA_N if not X_LADDER else (1 if now < 35 else 2 if now < 110 else 3)   # late practice deaths are zone deaths
+        if X_LADDER >= 2:
+            need = 1 if now < 35 else (X_LADDER + 1 if now < 110 else 2 * X_LADDER + 1)   # 2: 1 / 3 / 5, 3: 1 / 4 / 7
+        else:
+            need = X_FFA_N if not X_LADDER else (1 if now < 35 else 2 if now < 110 else 3)   # late practice deaths are zone deaths
         if self.start_alive - o["alive"] - self.kills >= need:
             self.other_dead += 1
         else:
