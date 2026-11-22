@@ -97,6 +97,8 @@ D_KCUBE = float(os.environ.get("D_KCUBE", 0))
 # every one): walk to the building, then jump and jet up to the item (100 energy climbs ~60 m). 1 = in practice rules only,
 # 2 = also under free-for-all rules (that includes the first 20 s of every match, before practice is detected)
 D_ROOF = int(os.environ.get("D_ROOF", 0))
+ARM_NEAR = float(os.environ.get("K2_ARMNEAR", 0))   # unarmed: a wanted weapon within this many m overrides free-for-all spacing (0 = off)
+ARM_NEAR_K = int(os.environ.get("K2_ARMNEAR_K", 0))  # 1: also take that weapon when another mech is near it
 X_SPIN = int(os.environ.get("X_SPIN", 1))            # free-for-all: full-circle scan whenever the torso is free, also while walking
 X_FLOW = int(os.environ.get("X_FLOW", 1))            # full path field for long trips (the capped A* dead-ends)
 # --- house-squad exploits (practice mode only; all off by default) ---
@@ -964,6 +966,8 @@ class Bot:
             ko = keep_off
             if ko and kind == "pickup" and unarmed_:
                 ko = 65.0     # a first weapon is worth going close for, just not inside a 60 m bubble
+                if ARM_NEAR_K and ARM_NEAR and hyp(pos[0] - x, pos[1] - y) < ARM_NEAR:
+                    ko = 0.0  # review 5024: lightning at 46 m and a laser at 60 m skipped, died unarmed at 30 s
             if ko and any(now - t.seen < 10 and hyp(t.pos[0] - pos[0], t.pos[1] - pos[1]) < ko
                           for t in self.tracks.values()):
                 return        # someone is on it: going there starts the fight we are avoiding
@@ -1667,6 +1671,8 @@ class Bot:
             mode = "scan"
         close_pick = close_pick or (F_DROP == 1 and mode == "loot:drop:go")     # committed; drop_threat already cleared the area
         close_pick = close_pick or (D_ROOF and mode == "loot:climb")     # mid-climb: a spacing push drops us off the wall
+        close_pick = close_pick or (ARM_NEAR and slots[1] is None and mode == "loot:pickup"
+                                    and self.near_pick(me, slots, x, y, zf, ARM_NEAR) is not None)   # unarmed: spacing must not walk us off a near weapon
         if not self.prac_on and not close_pick and mode not in ("unstuck", "zone", "cover", "hide", "fight", "fight:cube", "fight:pick", "fight:close", "fight:hide", "fight:back", "cornered", "scan") \
                 and not late:
             R = X_UNARMED if slots[1] is None else X_AVOID
