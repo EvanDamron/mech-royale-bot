@@ -36,6 +36,24 @@ X_FFA_N = int(os.environ.get("X_FFA_N", 1))           # deaths we did not cause 
 X_PRACT = float(os.environ.get("X_PRACT", 20))       # no unexplained death by this time = practice match (rival bots use 20 s)
 X_STEALTH = int(os.environ.get("X_STEALTH", 1))      # before a free-for-all is confirmed: never sweep the aim across a mech
 X_HUSH = int(os.environ.get("X_HUSH", 1))            # before a free-for-all is confirmed: never close on a mech in view at over 3 m/s
+# Hit rates measured on real matches (18 public showdown room captures, Nov 21): gun hits / shots by range band.
+# House bots (expert + organizer probes) and team bots (other teams' entries). Laser: expert 17/119/98/31 releases.
+HIT_RANGES = (40, 60, 80, 100, 150, 1e9)
+GUN_HIT_HOUSE = (0.70, 0.59, 0.44, 0.37, 0.21, 0.11)    # 524/753, 931/1571, 908/2053, 538/1451, 427/1991, 87/788
+GUN_HIT_TEAM = (0.76, 0.67, 0.56, 0.52, 0.43, 0.30)     # 54/71, 147/219, 163/290, 94/181, 119/274; 150+ capped (43/81 is thin)
+LASER_HIT_HOUSE = (0.59, 0.59, 0.30, 0.30, 0.13, 0.06)  # 0-60 / 60-100 / 100-150 / 150+ m
+LASER_HIT_TEAM = (0.80, 0.80, 0.80, 0.80, 0.70, 0.40)   # team-bot lasers track and hit 64-87% inside 150 m in top-16 matches
+GUN_DPS_HOUSE, GUN_DPS_TEAM, LASER_DPS = 112.0, 150.0, 131.0   # house taps every 0.4 s; 315 per 2.4 s laser cycle
+
+
+def band(table, d):
+    for r, v in zip(HIT_RANGES, table):
+        if d < r:
+            return v
+    return table[-1]
+
+
+PLAN = float(os.environ.get("K2_PLAN", 0))   # HP of expected damage worth one meter of progress, inverted (0 = off)
 X_SPIN = int(os.environ.get("X_SPIN", 1))            # free-for-all: full-circle scan whenever the torso is free, also while walking
 X_FLOW = int(os.environ.get("X_FLOW", 1))            # full path field for long trips (the capped A* dead-ends)
 
@@ -499,6 +517,94 @@ class Bot:
             return None
         self.cover_goal = (best[1], best[2])
         return self.travel_cover(me)
+
+    def plan_move(self, o, mx, my, target, weapons, walk, z):
+        """Expected damage taken minus dealt over the next ~1.2 s for each candidate step; keep the mode's direction
+        unless another step is clearly safer. Review: half the damage we take comes from inside 60 m and half from mechs
+        we are not shooting; the first hit decides most fights."""
+        me = o["self"]
+        x, y = me["pos"][0], me["pos"][1]
+        now = self.now
+        W = self.W
+        foes = []
+        for t in self.tracks.values():
+            age = now - t.seen
+            if t.kind != "mech" or age > 6:
+                continue
+            d = hyp(t.pos[0] - x, t.pos[1] - y)
+            if d > 220:
+                continue
+            ws = t.weapons or ()
+            facing = abs(wrap(math.atan2(t.pos[1] - y, t.pos[0] - x) - me["aim"][0])) < 0.5 and d < 190
+            hot = t.engage or now - t.hit_me < 4 or d < 65 or (self.prac_on and d < 150) or (not self.prac_on and facing)
+            wgt = (1.0 if hot else 0.35) * (1.0 if age < 0.3 else 0.6)
+            foes.append((d, t, ws, wgt))
+        if not foes:
+            return None
+        foes.sort(key=lambda f: f[0])
+        foes = foes[:4]
+        h = self.height_of(me.get("cubes", 0))
+        mh = me["stats"].get("muzzle_height", 7)
+
+        house = self.prac_on
+        gtab, ltab = (GUN_HIT_HOUSE, LASER_HIT_HOUSE) if house else (GUN_HIT_TEAM, LASER_HIT_TEAM)
+        gdps = GUN_DPS_HOUSE if house else GUN_DPS_TEAM
+
+        def taken(cx, cy):
+            cz = self.walk_z(cx, cy)
+            body = (cx, cy, cz + h * 0.6)
+            tot = 0.0
+            for _, t, ws, wgt in foes:
+                d = hyp(t.pos[0] - cx, t.pos[1] - cy)
+                if not W.los(self.eye(t), body):
+                    continue
+                r = gdps * band(gtab, d) if d < 300 else 0.0
+                if "laser" in ws and d < 280:
+                    r += LASER_DPS * band(ltab, d)
+                if "lightning" in ws and d < 32:
+                    r += 120.0
+                tot += r * wgt
+            return tot * 1.2
+
+        def dealt(cx, cy):
+            if target is None or target.kind != "mech":
+                return 0.0
+            d = hyp(target.pos[0] - cx, target.pos[1] - cy)
+            if not W.los((cx, cy, self.walk_z(cx, cy) + mh), self.center(target)):
+                return 0.0
+            r = 0.0
+            if "gun" in weapons:
+                r += 110.0 * (0.93 if d < 60 else 0.84 if d < 100 else 0.64 if d < 150 else 0.22 if d < 200 else 0.0)
+            if "laser" in weapons and d < 280:
+                r += 120.0
+            if "lightning" in weapons and d < 30:
+                r += 120.0
+            return r * 1.2
+
+        step = min(walk * 1.2, 10.0)
+        n0 = hyp(mx, my)
+        ux, uy = (mx / n0, my / n0) if n0 > 1e-6 else (0.0, 0.0)
+        cands = [(mx, my)] if n0 > 1e-6 else []
+        cands.append((0.0, 0.0))
+        for k in range(16):
+            a = k * TAU / 16
+            cands.append((math.cos(a), math.sin(a)))
+        best = None
+        base_sc = None
+        for cx_, cy_ in cands:
+            n_ = hyp(cx_, cy_)
+            px, py = x + cx_ * step, y + cy_ * step
+            if n_ > 1e-6 and not W.walk_clear((x, y), (x + cx_ / n_ * 6, y + cy_ / n_ * 6)):
+                continue
+            prog = (cx_ * ux + cy_ * uy) * step
+            sc = (taken(px, py) - dealt(px, py)) / PLAN - prog + self.zone_penalty(z, px, py, now) * 0.3
+            if (cx_, cy_) == (mx, my):
+                base_sc = sc
+            if best is None or sc < best[0]:
+                best = (sc, cx_, cy_)
+        if best is None or base_sc is None or best[0] > base_sc - 3.0:
+            return None       # keep the mode's choice unless another step is clearly better
+        return best[1], best[2]
 
     def withdraw(self, o, seen):
         """Step away from the centroid of nearby enemies along a walkable, in-zone direction."""
@@ -1182,6 +1288,11 @@ class Bot:
                         mx, my = mx / n_, my / n_
                     boost = False
                     mode += "+hush"
+        if PLAN and mode not in ("unstuck", "zone", "cover", "hide"):
+            pm = self.plan_move(o, mx, my, target, weapons, walk, z)
+            if pm is not None:
+                mx, my = pm
+                mode += "+plan"
         if mode not in ("unstuck",):
             dx, dy, lz = self.dodge(o)
             if dx or dy:
