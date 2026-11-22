@@ -77,6 +77,8 @@ F_RANGE = int(os.environ.get("F_RANGE", 0))   # lightning vs laser at 30-70 m: c
 F_ARM = int(os.environ.get("F_ARM", 0))       # unarmed, free-for-all confirmed, walking to a weapon: keep only 70 m from mechs
 SALT = int(os.environ.get("K2_SALT", 7))     # salt for the tie-break and strafe random draws (no strategy effect)
 F_STUCK = int(os.environ.get("F_STUCK", 1))   # 3 unstuck triggers in 10 s: jump and jet toward where we were going
+ARM_NEAR = float(os.environ.get("K2_ARMNEAR", 0))   # unarmed: a wanted weapon within this many m overrides free-for-all spacing (0 = off)
+ARM_NEAR_K = int(os.environ.get("K2_ARMNEAR_K", 0))  # 1: also take that weapon when another mech is near it
 X_SPIN = int(os.environ.get("X_SPIN", 1))            # free-for-all: full-circle scan whenever the torso is free, also while walking
 X_FLOW = int(os.environ.get("X_FLOW", 1))            # full path field for long trips (the capped A* dead-ends)
 
@@ -828,6 +830,8 @@ class Bot:
             ko = keep_off
             if ko and kind == "pickup" and unarmed_:
                 ko = 65.0     # a first weapon is worth going close for, just not inside a 60 m bubble
+                if ARM_NEAR_K and ARM_NEAR and hyp(pos[0] - x, pos[1] - y) < ARM_NEAR:
+                    ko = 0.0  # review 5024: lightning at 46 m and a laser at 60 m skipped, died unarmed at 30 s
             if ko and any(now - t.seen < 10 and hyp(t.pos[0] - pos[0], t.pos[1] - pos[1]) < ko
                           for t in self.tracks.values()):
                 return        # someone is on it: going there starts the fight we are avoiding
@@ -1453,6 +1457,8 @@ class Bot:
             farm_pos = None
             mode = "scan"
         close_pick = close_pick or (F_DROP == 1 and mode == "loot:drop:go")     # committed; drop_threat already cleared the area
+        close_pick = close_pick or (ARM_NEAR and slots[1] is None and mode == "loot:pickup"
+                                    and self.near_pick(me, slots, x, y, zf, ARM_NEAR) is not None)   # unarmed: spacing must not walk us off a near weapon
         if not self.prac_on and not close_pick and mode not in ("unstuck", "zone", "cover", "hide", "fight", "fight:cube", "fight:pick", "fight:close", "fight:hide", "fight:back", "cornered", "scan") \
                 and not late:
             R = X_UNARMED if slots[1] is None else X_AVOID
