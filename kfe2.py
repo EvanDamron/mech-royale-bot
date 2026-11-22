@@ -23,8 +23,6 @@ WITHDRAW = bool(int(os.environ.get("K2_WITHDRAW", 1)))       # swamped, no cover
 USE_DROPS = bool(int(os.environ.get("K2_DROPS", 0)))       # go for supply drops (league: costs placement, off)
 CROWD_N = int(os.environ.get("K2_CROWD", 3))                               # this many engaged/close enemies in view means retreat
 UPG_ORDER = os.environ.get("K2_UPG", "survive")              # "survive" or "damage"
-FFA_EARLY = int(os.environ.get("K2_FFA_EARLY", 3))   # unexplained deaths before 150 s that mean free-for-all
-FFA_LATE = int(os.environ.get("K2_FFA_LATE", 5))
 OPENING_HUNT = bool(int(os.environ.get("K2_OPENING", 0)))   # walk far for a laser in the first 20 s
 
 # our own upgrade preferences: survivability first, then the weapon we actually carry
@@ -94,9 +92,6 @@ class Bot:
         self.kills = 0
         self.start_alive = None
         self.other_dead = 0
-        self.hit_on = {}        # mech id -> last time we hit it
-        self.assist = set()     # vanished mechs we left under 40% HP: their deaths are likely ours (drones, bleed)
-        self.unexpl = 0
         self.ffa = False
         self.P = dict(FFA)
         self.prac_on = False
@@ -666,23 +661,13 @@ class Bot:
                     t = self.tracks.get(e["by"]) or self.npcs.get(e["by"])
                     if t is not None:
                         t.hit_me = now
-            elif et == "hit" and e.get("target", 999) < 100:
-                self.hit_on[e["target"]] = now
             elif et == "kill":
                 self.kills += 1
                 self.tracks.pop(e.get("target"), None)
         # free-for-all detection: deaths we did not cause (house squads only die to us)
         if self.start_alive is None:
             self.start_alive = o["alive"]
-        dead_other = self.start_alive - o["alive"] - self.kills
-        if dead_other > self.unexpl:
-            for tid, th in self.hit_on.items():
-                t = self.tracks.get(tid)
-                if now - th < 20 and tid not in self.assist and t is not None and t.seen < now and t.hp < 0.4 * t.max_hp:
-                    self.assist.add(tid)
-            self.unexpl = dead_other
-        # one stray death is common in practice (drones, zone); a free-for-all kills fast
-        if dead_other - len(self.assist) >= (FFA_EARLY if now < 150 else FFA_LATE):
+        if self.start_alive - o["alive"] - self.kills > 0:
             self.other_dead += 1
         else:
             self.other_dead = 0
