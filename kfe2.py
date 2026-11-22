@@ -671,7 +671,7 @@ class Bot:
             self.other_dead += 1
         else:
             self.other_dead = 0
-        if self.other_dead >= 5:
+        if self.other_dead >= 10 ** 9:
             self.ffa = True
         on = not self.ffa and now > 20
         if on != self.prac_on:
