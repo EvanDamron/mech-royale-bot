@@ -18,6 +18,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from engine import Match  # noqa: E402
 from house import HouseBot  # noqa: E402
+import fixes  # noqa: E402,F401  (no stadium spawns; push wedged mechs out of walls; NO_WEDGE_FIX=1 disables the push)
 
 
 def parse_bots(specs):
