@@ -60,6 +60,14 @@ def band(table, d):
 RESET = float(os.environ.get("K2_RESET", 0))   # practice: after a kill, break line of sight for this many seconds before re-engaging
 ISO = float(os.environ.get("K2_ISO", 0))   # fight spots: penalty per other mech with a line on the spot (0 = the old 30, nearest 3 in view)
 PLAN = float(os.environ.get("K2_PLAN", 0))   # HP of expected damage worth one meter of progress, inverted (0 = off)
+X_SWAP = float(os.environ.get("X_SWAP", 0))       # holding lightning: walk this far to swap it for a laser (0 = off)
+X_ODDS = int(os.environ.get("X_ODDS", 1))            # free-for-all: refuse fights against stronger mechs, strike weaker ones first
+X_ODDS_LO = float(os.environ.get("X_ODDS_LO", 0.8))  # our HP x damage x weapon over theirs: below this, leave without firing
+X_ODDS_HI = float(os.environ.get("X_ODDS_HI", 1.25)) # above this, open with the laser from up to X_STRIKE m
+X_STRIKE = float(os.environ.get("X_STRIKE", 110))
+X_EARS = int(os.environ.get("X_EARS", 0))            # free-for-all: place unseen mechs from what we hear (look there, keep clear of them)
+X_ODDS_FFA = int(os.environ.get("X_ODDS_FFA", 1))    # 1: the odds rule waits for the first death we did not cause
+X_RANGE = float(os.environ.get("X_RANGE", 0))        # free-for-all: gun and laser fighting range (0 = keep 85 m)
 X_SPIN = int(os.environ.get("X_SPIN", 1))            # free-for-all: full-circle scan whenever the torso is free, also while walking
 X_FLOW = int(os.environ.get("X_FLOW", 1))            # full path field for long trips (the capped A* dead-ends)
 
@@ -89,6 +97,11 @@ SQUAD = dict(engage=60.0, laser_r=env("K2_LASER_R", 120.0), gun_r=85.0, light_r=
 FFA = dict(engage=60.0, laser_r=85.0, gun_r=85.0, light_r=28.0, max_t=215.0, hpw=60.0 / 1400, low_bonus=0.0,
            stick=0.0, retreat_hp=0.38, recover_hp=0.8, loot_r=90.0, laser_seek=0.0, fight_loot=0.0, farm_hp=0.7,
            crates_until=150.0, peek=True, ghost=True, lose_rule=False, lethal_k=0.8, finish=0.0)
+# mech-made sounds and their carry range (protocol section 8); a sound does not say who made it
+EAR_RANGE = {"step": 40.0, "boost": 90.0, "jet": 90.0, "reload": 60.0, "gun": 320.0, "laser_charge": 140.0,
+             "laser": 380.0, "lightning": 160.0, "mortar": 420.0}
+if X_RANGE > 0:
+    FFA["gun_r"] = FFA["laser_r"] = X_RANGE
 
 
 def wrap(a):
@@ -168,12 +181,13 @@ class Flow:
 
 class Track:
     __slots__ = ("id", "kind", "pos", "vel", "aim", "hp", "max_hp", "cubes", "weapons", "charging", "seen", "dist",
-                 "los", "closing", "hit_me", "engage")
+                 "los", "closing", "hit_me", "engage", "odds")
 
     def __init__(self, i):
         self.id = i
         self.hit_me = -100.0
         self.engage = False
+        self.odds = 1.0
 
 
 class Bot:
@@ -191,6 +205,7 @@ class Bot:
         self.cubes = {}
         self.pickups = {}
         self.kills = 0
+        self.hit_on = {}
         self.start_alive = None
         self.other_dead = 0
         self.ffa = False
@@ -228,7 +243,11 @@ class Bot:
         self.flows = {}
         self.break_until = -100.0
         self.spin_t0 = 0.0
+        self.refuse_until = 0.0
         self.scan_dir = 1.0
+        self.heard = None       # (bearing, dist bucket, time) of the latest loud sound
+        self.ghosts = []        # unexplained mech sounds: (time, x, y, bearing, kind, est range)
+        self.look = None        # (bearing, until): turn the torso toward an unexplained sound
 
     # ------------------------------------------------------------------ geometry helpers
     def height_of(self, cubes):
@@ -777,6 +796,8 @@ class Bot:
             if ko and any(now - t.seen < 10 and hyp(t.pos[0] - pos[0], t.pos[1] - pos[1]) < ko
                           for t in self.tracks.values()):
                 return        # someone is on it: going there starts the fight we are avoiding
+            if ko and X_EARS and any(g[5] <= 100 and hyp(g[1] - pos[0], g[2] - pos[1]) < ko for g in self.ghosts):
+                return        # an unseen mech we heard is near it
             d = hyp(pos[0] - x, pos[1] - y)
             if d > 260 or hyp(pos[0] - cur[0], pos[1] - cur[1]) > cur[2] - 6:
                 return
@@ -798,12 +819,19 @@ class Bot:
             if seek:
                 rad = P["laser_seek"]
             far = X_SEEK and unarmed and p["kind"] in ("laser", "lightning")
+            # lightning against a laser holder that stays out of arc range: 15 deaths to 4 in 22 engagements
+            swap = X_SWAP and not far and not self.prac_on and p["kind"] == "laser" and slots[1] is not None \
+                and slots[1]["kind"] == "lightning"
             if far:
                 rad = max(rad, X_SEEK)
+            elif swap:
+                rad = max(rad, X_SWAP)
             if self.want_pickup(me, p["kind"], slots) and hyp(p["pos"][0] - x, p["pos"][1] - y) < rad:
                 v = 130.0 if slots[1] is None else 60.0
                 if seek:
                     v = max(v, 150.0)
+                if swap:
+                    v = max(v, 200.0)
                 if far:
                     # league review: over a quarter of rival bot deaths are unarmed ones around 50 s, worth 3.7 points
                     v = 330.0 if p["kind"] == "laser" else 260.0
@@ -893,6 +921,13 @@ class Bot:
         upd(self.crates, o["crates"])
         upd(self.cubes, o["cubes"])
         upd(self.pickups, o["pickups"])
+        for snd in o.get("sounds", ()):
+            if snd.get("kind") in ("gun", "laser", "lightning", "mortar", "crate", "step", "boost"):
+                self.heard = (snd["bearing"], snd.get("dist"), now - snd.get("age", 0.0))
+            if X_EARS and not self.prac_on and snd.get("kind") in EAR_RANGE:
+                self.hear(me, snd, now)
+        if self.ghosts:
+            self.ghosts = [g for g in self.ghosts if now - g[0] < 6]
         for e in o["events"]:
             et = e["type"]
             if et == "damaged":
@@ -905,6 +940,8 @@ class Bot:
                     t = self.tracks.get(e["by"]) or self.npcs.get(e["by"])
                     if t is not None:
                         t.hit_me = now
+            elif et == "hit" and e.get("target") is not None:
+                self.hit_on[e["target"]] = now
             elif et == "kill":
                 self.reset_until = now + RESET
                 self.kills += 1
@@ -936,6 +973,39 @@ class Bot:
         elif now <= z["shrink_start"]:
             self.hold = (z["center"][0], z["center"][1], z["radius"])
 
+    def hear(self, me, snd, now):
+        """A mech sound with no tracked mech near its bearing: a mech we cannot see (canopy, walls, behind us).
+        Bearing error is 7 degrees (12 m at 100 m); the range comes only as near (<60 m), mid (<160 m) or far."""
+        kind, b, db = snd["kind"], snd["bearing"], snd.get("dist")
+        if db == "far":
+            return
+        cap = EAR_RANGE[kind]
+        est = min(cap * 0.75, 40.0) if db == "near" else min(cap * 0.8, 100.0)
+        x, y = me["pos"][0], me["pos"][1]
+        for t in self.tracks.values():
+            if now - t.seen < 1.5 and abs(wrap(math.atan2(t.pos[1] - y, t.pos[0] - x) - b)) < 0.3 \
+                    and (t.dist < 75 if db == "near" else 45 < t.dist < 180):
+                return
+        t_ = now - snd.get("age", 0.0)
+        self.ghosts.append((t_, x + math.cos(b) * est, y + math.sin(b) * est, b, kind, est))
+        if self.look is None or now >= self.look[1] or est < self.look[2]:
+            self.look = (b, now + 1.2, est)
+
+    def strength(self, me, t, slots):
+        """Our HP x damage x weapon against a mech's. League, 152 engagements with a rival bot: under 0.8 we died in 22 of
+        28 and killed 2; over 1.25 we killed 23 of 32 and died in 3. A laser against a lightning holder that never got
+        inside 30 m: 14 deaths to 2; gun only against a laser: 7 deaths in 7."""
+        def wf(kinds):
+            if "laser" in kinds:
+                return 1.0
+            if "lightning" in kinds or "mortar" in kinds:
+                return 0.6
+            return 0.35
+        cap = self.cfg["cubes"]["stat_cap"]
+        a = me["hp"] * (1 + 0.04 * min(me.get("cubes", 0), cap)) * wf([w["kind"] for w in slots if w])
+        b = max(1.0, t.hp) * (1 + 0.04 * min(t.cubes or 0, cap)) * wf(t.weapons or ())
+        return a / b
+
     # ------------------------------------------------------------------ decision
     def act(self, o):
         t0 = time.perf_counter()
@@ -965,6 +1035,9 @@ class Bot:
         seen = []
         target = hidden = None
         best_s = 1e18
+        refuse = []
+        odds_on = X_ODDS and P["ghost"] and not late and o["alive"] > 3 and (self.ffa or not X_ODDS_FFA)
+        crowd_near = sum(1 for t in self.tracks.values() if now - t.seen < 5 and t.dist < 120) if odds_on else 0
         for t in self.tracks.values():
             if now - t.seen > 2.5:
                 continue
@@ -978,6 +1051,18 @@ class Bot:
             if P["ghost"]:
                 t.engage = (t.dist < P["engage"] or now - t.hit_me < 4 or (aimed and t.charging and t.dist < 120)
                             or (t.hp < 350 and t.dist < 120) or o["alive"] <= 2)
+                if odds_on:
+                    t.odds = od = self.strength(me, t, slots)
+                    committed = now - self.hit_on.get(t.id, -99) < 4
+                    if od < X_ODDS_LO and not committed and me["hp"] >= 400 and t.hp >= 350:
+                        # it stops shooting once we are past 60 m unless we hit it, charge at it, or drop under 350 HP
+                        if t.engage or t.dist < 75:
+                            refuse.append(t)
+                        t.engage = False
+                    elif od >= X_ODDS_HI and not t.engage and t.los and (committed or (
+                            t.dist < X_STRIKE and laser is not None and laser.get("cooldown", 0) <= 0.3
+                            and hp_frac > 0.8 and crowd_near <= 1)):
+                        t.engage = True
             elif t.dist < P["engage"] or now - t.hit_me < 6 or late:
                 t.engage = True
             elif t.closing > 3 and t.dist < 180:
@@ -1056,6 +1141,10 @@ class Bot:
             brk = now < self.break_until
             if brk:
                 self.retreat = True
+        if refuse:
+            self.refuse_until = now + 1.0
+        if now < self.refuse_until and target is None and not late:
+            brk = True
 
         # ---- movement mode
         mx = my = 0.0
@@ -1259,12 +1348,24 @@ class Bot:
                     if now - t.seen > 8:
                         continue
                     dm = hyp(t.pos[0] - x, t.pos[1] - y)
-                    if dm < R:
-                        w = 0.35 + (R - dm) / R
+                    de = dm - 25.0 if X_ODDS and t.odds < X_ODDS_LO else dm    # 25 m more from a mech we would lose to
+                    if de < R:
+                        w = 0.35 + (R - de) / R
                         rx += (x - t.pos[0]) / max(dm, 1.0) * w
                         ry += (y - t.pos[1]) / max(dm, 1.0) * w
-                        if dm < R - 8 or t.closing > 4:
+                        if de < R - 8 or t.closing > 4:
                             hurry = True
+                if X_EARS:
+                    for g in self.ghosts:
+                        if now - g[0] > 4 or g[5] > 100:
+                            continue
+                        dm = hyp(g[1] - x, g[2] - y)
+                        if dm < R:
+                            w = 0.35 + (R - dm) / R
+                            rx += (x - g[1]) / max(dm, 1.0) * w
+                            ry += (y - g[2]) / max(dm, 1.0) * w
+                            if dm < R - 8:
+                                hurry = True
                 if rx or ry:
                     n = hyp(rx, ry)
                     ax, ay = rx / n, ry / n
@@ -1400,6 +1501,9 @@ class Bot:
             if any(now - t.seen < 4 and hyp(t.pos[0] - x, t.pos[1] - y) < 200
                    and abs(wrap(math.atan2(t.pos[1] - y, t.pos[0] - x) - b0)) < 0.3 for t in self.tracks.values()):
                 shootable = False     # a crate or drone in line with a mech: shooting it reads as aiming at the mech
+        if X_EARS and not self.prac_on and shootable and not is_mech and not defend and self.look is not None \
+                and now < self.look[1] and self.look[2] <= 100:
+            shootable = False     # stop shooting the crate and look toward the unseen mech
         if X_SPIN and not self.prac_on and shootable and not is_mech and not defend:
             # farming keeps the torso on a crate or drone for seconds at a time: break for one turn every 4 s
             if now - self.spin_t0 > 5.7:
@@ -1482,7 +1586,7 @@ class Bot:
         if not have_aim:
             watch = None
             for t in seen:
-                if t.engage or now - t.hit_me < 6:
+                if t.engage or now - t.hit_me < 6 or (brk and t.dist < 90):
                     if watch is None or t.dist < watch.dist:
                         watch = t
             if watch is not None:
@@ -1491,6 +1595,8 @@ class Bot:
                 aim[0] = self.npc_bearing
             elif now - self.last_hurt < 2.5:
                 aim[0] = self.hurt_bearing
+            elif X_EARS and not self.prac_on and self.look is not None and now < self.look[1]:
+                aim[0] = self.look[0]     # an unseen mech made that sound: look before it arrives
             elif (mx or my) and not (X_SPIN and not self.prac_on):
                 aim[0] = math.atan2(my, mx) + 1.15 * math.sin(now * 1.3)
             else:
