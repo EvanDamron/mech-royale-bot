@@ -70,6 +70,7 @@ X_ODDS_HI = float(os.environ.get("X_ODDS_HI", 1.25)) # above this, open with the
 X_STRIKE = float(os.environ.get("X_STRIKE", 110))
 X_EARS = int(os.environ.get("X_EARS", 0))            # free-for-all: place unseen mechs from what we hear (look there, keep clear of them)
 X_ODDS_FFA = int(os.environ.get("X_ODDS_FFA", 1))    # 1: the odds rule waits for the first death we did not cause
+F_STUCK = int(os.environ.get("F_STUCK", 0))   # 3 unstuck triggers in 10 s: jump and jet toward where we were going
 X_RANGE = float(os.environ.get("X_RANGE", 0))        # free-for-all: gun and laser fighting range (0 = keep 85 m)
 X_SPIN = int(os.environ.get("X_SPIN", 1))            # free-for-all: full-circle scan whenever the torso is free, also while walking
 X_FLOW = int(os.environ.get("X_FLOW", 1))            # full path field for long trips (the capped A* dead-ends)
@@ -238,6 +239,8 @@ class Bot:
         self.stuck_since = -1.0
         self.unstuck_until = -1.0
         self.unstuck_dir = (1.0, 0.0)
+        self.stuck_hits = []
+        self.jet_until = -1.0
         self.hold = None
         self.hold_start = None
         self.home_xy = None
@@ -1194,6 +1197,10 @@ class Bot:
         if now < self.unstuck_until:
             mx, my = self.unstuck_dir
             mode = "unstuck"
+            if now < self.jet_until:
+                boost = me["energy"] > 8      # in the air, boost is the jet
+                if me["energy"] <= 8:
+                    self.unstuck_until = self.jet_until = now
         elif zone_must and zdist > 2:
             mx, my = self.travel(me, zgx, zgy)
             boost = (not me["in_zone"] or now + t_need >= deadline) and me["energy"] > 5
@@ -1493,6 +1500,17 @@ class Bot:
                 self.stuck_since = -1
                 self.path = None
                 jump = True
+                if F_STUCK and not self.prac_on:
+                    # review: 20 s pressed against a building outside the zone, 50 s on a bridge over cubes;
+                    # a random half-second step does not get past a wall, a jet over it does (100 energy climbs ~60 m)
+                    self.stuck_hits = [h for h in self.stuck_hits if now - h < 10] + [now]
+                    if mode.startswith("loot") and len(self.stuck_hits) >= 2 and self.loot_id is not None:
+                        self.bad[self.loot_id] = now + 60
+                    if len(self.stuck_hits) >= 3 and me["energy"] > 25:
+                        n_ = hyp(mx, my)
+                        self.unstuck_dir = (mx / n_, my / n_)
+                        self.unstuck_until = self.jet_until = now + 3.0
+                        self.stuck_hits = []
         else:
             self.stuck_since = -1
 
