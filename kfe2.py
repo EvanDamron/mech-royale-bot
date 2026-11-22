@@ -71,6 +71,7 @@ X_RANGE = float(os.environ.get("X_RANGE", 0))        # free-for-all: gun and las
 # --- free-for-all fixes from the visual review (all off by default, never active in practice mode) ---
 F_DROP = int(os.environ.get("F_DROP", 0))     # drops: wait ~90 m out, walk in to arrive as it lands, skip when unarmed/final 3/stronger mech near
 F_RANGE = int(os.environ.get("F_RANGE", 0))   # lightning vs laser at 30-70 m: close in or hide; laser vs lightning: stay out of its arc
+F_ARM = int(os.environ.get("F_ARM", 0))       # unarmed, free-for-all confirmed, walking to a weapon: keep only 70 m from mechs
 F_STUCK = int(os.environ.get("F_STUCK", 0))   # 3 unstuck triggers in 10 s: jump and jet toward where we were going
 X_SPIN = int(os.environ.get("X_SPIN", 1))            # free-for-all: full-circle scan whenever the torso is free, also while walking
 X_FLOW = int(os.environ.get("X_FLOW", 1))            # full path field for long trips (the capped A* dead-ends)
@@ -883,10 +884,11 @@ class Bot:
         return best
 
     def drop_threat(self, me, slots, pos):
-        """A mech we would not beat (odds under 1.1) seen in the last 10 s within 120 m of a drop: real drop takers
-        capture with nobody that close; ours died to the mech that walked up while it stood at the ring."""
+        """A mech we would not beat (odds under 1.1) seen in the last 10 s within 120 m of a drop or of us: real drop
+        takers capture with nobody that close; ours died to the mech that walked up while it stood at the ring."""
+        x, y = me["pos"][0], me["pos"][1]
         for t in self.tracks.values():
-            if self.now - t.seen < 10 and hyp(t.pos[0] - pos[0], t.pos[1] - pos[1]) < 120 \
+            if self.now - t.seen < 10 and min(hyp(t.pos[0] - pos[0], t.pos[1] - pos[1]), hyp(t.pos[0] - x, t.pos[1] - y)) < 120 \
                     and self.strength(me, t, slots) < 1.1:
                 return True
         return False
@@ -1333,6 +1335,11 @@ class Bot:
                     elif hyp(gx_ - x, gy_ - y) > 3:
                         mx, my = self.travel(me, gx_, gy_)
                         boost = ph == "go" and d_ is not None and d_.get("lands_in", 0) <= 0 and me["energy"] > 30
+                    elif ph != "go":
+                        # waiting: out of sight of every mech we know of (real drop takers wait in cover ~100 m off)
+                        cm = self.cover_move(o, [t for t in self.tracks.values() if now - t.seen < 10])
+                        if cm is not None:
+                            mx, my = cm
                 else:
                     mx, my = self.travel(me, pos[0], pos[1])
                     if kind == "drop" and hyp(pos[0] - x, pos[1] - y) < 2.5:
@@ -1408,6 +1415,11 @@ class Bot:
         if not self.prac_on and not close_pick and mode not in ("unstuck", "zone", "cover", "hide", "fight", "fight:cube", "fight:pick", "fight:close", "fight:hide", "fight:back", "cornered") \
                 and not late:
             R = X_UNARMED if slots[1] is None else X_AVOID
+            # F_ARM: once the free-for-all is confirmed rival bots start fights at 60 m, but the 110 m bubble (135 m from
+            # a mech we would lose to) turned weapon walks into 100+ s of back and forth (10-12 never-armed of 80)
+            arm = F_ARM and slots[1] is None and self.ffa and mode == "loot:pickup"
+            if arm:
+                R = 70.0
             if R > 0:
                 rx = ry = 0.0
                 hurry = False
@@ -1415,7 +1427,7 @@ class Bot:
                     if now - t.seen > 8:
                         continue
                     dm = hyp(t.pos[0] - x, t.pos[1] - y)
-                    de = dm - 25.0 if X_ODDS and t.odds < X_ODDS_LO else dm    # 25 m more from a mech we would lose to
+                    de = dm - 25.0 if X_ODDS and t.odds < X_ODDS_LO and not arm else dm    # 25 m more from a mech we would lose to
                     if de < R:
                         w = 0.35 + (R - de) / R
                         rx += (x - t.pos[0]) / max(dm, 1.0) * w
